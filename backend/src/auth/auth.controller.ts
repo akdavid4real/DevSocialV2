@@ -9,8 +9,11 @@ import {
   Param,
   Post,
   Req,
+  Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -19,9 +22,47 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 
+const REFRESH_COOKIE = 'devsocial_refresh';
+
+function parseCookies(header?: string): Record<string, string> {
+  if (!header) return {};
+  return header.split(';').reduce<Record<string, string>>((cookies, entry) => {
+    const index = entry.indexOf('=');
+    if (index < 0) return cookies;
+    const key = entry.slice(0, index).trim();
+    const value = entry.slice(index + 1).trim();
+    if (key) cookies[key] = decodeURIComponent(value);
+    return cookies;
+  }, {});
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  private cookieOptions() {
+    const configured = (process.env.AUTH_COOKIE_SAME_SITE || 'lax').toLowerCase();
+    const sameSite: 'lax' | 'strict' | 'none' =
+      configured === 'none' || configured === 'strict' ? configured : 'lax';
+
+    return {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production' || sameSite === 'none',
+      sameSite,
+      path: '/api/v2/auth',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      ...(process.env.AUTH_COOKIE_DOMAIN ? { domain: process.env.AUTH_COOKIE_DOMAIN } : {}),
+    } as const;
+  }
+
+  private setRefreshCookie(res: Response, refreshToken: string) {
+    res.cookie(REFRESH_COOKIE, refreshToken, this.cookieOptions());
+  }
+
+  private clearRefreshCookie(res: Response) {
+    const { maxAge: _maxAge, ...options } = this.cookieOptions();
+    res.clearCookie(REFRESH_COOKIE, options);
+  }
 
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {
@@ -30,8 +71,35 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.login(loginDto);
+    this.setRefreshCookie(res, result.session.refresh_token);
+
+    return {
+      user: result.user,
+      session: {
+        access_token: result.session.access_token,
+        expires_at: result.session.expires_at,
+      },
+    };
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    const refreshToken = parseCookies(req.headers?.cookie)[REFRESH_COOKIE];
+    if (!refreshToken) throw new UnauthorizedException('No refresh session');
+
+    const result = await this.authService.refreshSession(refreshToken);
+    this.setRefreshCookie(res, result.session.refresh_token);
+
+    return {
+      user: result.user,
+      session: {
+        access_token: result.session.access_token,
+        expires_at: result.session.expires_at,
+      },
+    };
   }
 
   @Post('verify')
@@ -71,8 +139,19 @@ export class AuthController {
   @Delete('delete-account')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async deleteAccount(@Req() req: any) {
-    return this.authService.deleteAccount(req.user.id);
+  async deleteAccount(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.deleteAccount(req.user.id);
+    this.clearRefreshCookie(res);
+    return result;
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async logout(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.logoutCurrent(req.authToken);
+    this.clearRefreshCookie(res);
+    return result;
   }
 
   @Get('sessions')
@@ -84,14 +163,22 @@ export class AuthController {
   @Delete('sessions/:sessionId')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async logoutSession(@Req() req: any, @Param('sessionId') sessionId: string) {
-    return this.authService.logoutSession(req.authToken, sessionId, req.authSessionId);
+  async logoutSession(
+    @Req() req: any,
+    @Param('sessionId') sessionId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.logoutSession(req.authToken, sessionId, req.authSessionId);
+    this.clearRefreshCookie(res);
+    return result;
   }
 
   @Post('logout-all')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async logoutAll(@Req() req: any) {
-    return this.authService.logoutAll(req.authToken);
+  async logoutAll(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    const result = await this.authService.logoutAll(req.authToken);
+    this.clearRefreshCookie(res);
+    return result;
   }
 }
