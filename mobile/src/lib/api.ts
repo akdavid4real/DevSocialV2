@@ -7,13 +7,14 @@ export const API_BASE_URL =
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 15000,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Client-Platform': 'mobile',
+  },
 })
 
-console.log('[API] Base URL:', API_BASE_URL)
-
-// In-memory token cache — avoids slow SecureStore reads on every request
 let _cachedToken: string | null = null
+let _cachedRefreshToken: string | null = null
 
 export const tokenCache = {
   async get(): Promise<string | null> {
@@ -21,17 +22,33 @@ export const tokenCache = {
     _cachedToken = await SecureStore.getItemAsync('token')
     return _cachedToken
   },
+  async getRefresh(): Promise<string | null> {
+    if (_cachedRefreshToken !== null) return _cachedRefreshToken
+    _cachedRefreshToken = await SecureStore.getItemAsync('refresh_token')
+    return _cachedRefreshToken
+  },
   async set(token: string) {
     _cachedToken = token
     await SecureStore.setItemAsync('token', token)
   },
+  async setSession(token: string, refreshToken: string) {
+    _cachedToken = token
+    _cachedRefreshToken = refreshToken
+    await Promise.all([
+      SecureStore.setItemAsync('token', token),
+      SecureStore.setItemAsync('refresh_token', refreshToken),
+    ])
+  },
   async clear() {
     _cachedToken = null
-    await SecureStore.deleteItemAsync('token')
+    _cachedRefreshToken = null
+    await Promise.all([
+      SecureStore.deleteItemAsync('token'),
+      SecureStore.deleteItemAsync('refresh_token'),
+    ])
   },
 }
 
-// Request interceptor: attach JWT token from memory cache
 api.interceptors.request.use(async (config) => {
   const token = await tokenCache.get()
   if (token) {
@@ -40,27 +57,51 @@ api.interceptors.request.use(async (config) => {
   if (config.method === 'get') {
     config.params = { ...config.params, _t: Date.now() }
   }
-  console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`)
   return config
 })
 
-// Response interceptor: unwrap data, handle 401
 api.interceptors.response.use(
-  (response) => {
-    console.log(`[API] ✓ ${response.status} ${response.config.url}`)
-    return response.data ?? response
-  },
+  (response) => response.data ?? response,
   async (error) => {
-    const status = error.response?.status || 'NETWORK_ERROR'
-    const url = error.config?.url || 'unknown'
-    console.log(`[API] ✗ ${status} ${url}`, error.message || '')
-    const isLoginRequest = error.config?.url?.includes('/auth/login')
-    if (error.response?.status === 401 && !isLoginRequest) {
-      console.log('[API] 401 detected, clearing token')
+    const originalRequest = error.config as (typeof error.config & { _retry?: boolean }) | undefined
+    const url = originalRequest?.url || ''
+    const isAuthRequest = url.includes('/auth/login') || url.includes('/auth/refresh')
+
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthRequest) {
+      originalRequest._retry = true
+      const refreshToken = await tokenCache.getRefresh()
+
+      if (refreshToken) {
+        try {
+          const refreshResponse = await axios.post(
+            `${API_BASE_URL}/auth/refresh`,
+            { refreshToken },
+            {
+              timeout: 15000,
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Client-Platform': 'mobile',
+              },
+            },
+          )
+
+          const session = refreshResponse.data?.data?.session
+          if (session?.access_token && session?.refresh_token) {
+            await tokenCache.setSession(session.access_token, session.refresh_token)
+            originalRequest.headers = originalRequest.headers || {}
+            originalRequest.headers.Authorization = `Bearer ${session.access_token}`
+            return api.request(originalRequest)
+          }
+        } catch {
+          // Fall through and clear stale credentials.
+        }
+      }
+
       await tokenCache.clear()
     }
+
     return Promise.reject(error.response?.data || error.message)
-  }
+  },
 )
 
 export default api
@@ -75,6 +116,7 @@ export const verifyOtp = (data: { email: string; token: string }) =>
   api.post('/auth/verify', data)
 
 export const getMe = () => api.get('/auth/me')
+export const logoutSession = () => api.post('/auth/logout')
 
 export const changePassword = (data: { currentPassword: string; newPassword: string }) =>
   api.post('/auth/change-password', data)
