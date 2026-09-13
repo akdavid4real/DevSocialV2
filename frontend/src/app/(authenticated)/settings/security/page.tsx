@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Monitor, Smartphone, Loader2, LogOut, Shield, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Loader2, LogOut, Shield, AlertCircle, CheckCircle2, Clock, Monitor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { useRouter } from '@/lib/navigation'
@@ -9,12 +9,8 @@ import { API_BASE_URL } from '@/lib/env'
 
 type Session = {
   id: string
-  deviceType: 'desktop' | 'mobile' | 'tablet'
-  browser: string
-  os: string
-  ipAddress: string
-  location: string
   lastActive: string
+  expiresAt?: string | null
   isCurrent: boolean
 }
 
@@ -23,9 +19,7 @@ export default function SecuritySettings() {
   const [loading, setLoading] = useState(true)
   const [sessions, setSessions] = useState<Session[]>([])
   const [logoutAllLoading, setLogoutAllLoading] = useState(false)
-  const [logoutingSessionId, setLogoutingSessionId] = useState<string | null>(null)
-
-  // Security stats
+  const [logoutCurrentLoading, setLogoutCurrentLoading] = useState(false)
   const [lastPasswordChange, setLastPasswordChange] = useState<string | null>(null)
   const [accountCreated, setAccountCreated] = useState<string | null>(null)
   const [totalLogins, setTotalLogins] = useState(0)
@@ -38,16 +32,19 @@ export default function SecuritySettings() {
   const fetchSessions = async () => {
     try {
       const token = localStorage.getItem('token')
+      if (!token) return
       const res = await fetch(`${API_BASE_URL}/auth/sessions`, {
         headers: { Authorization: `Bearer ${token}` },
       })
 
       if (res.ok) {
         const { data } = await res.json()
-        setSessions(data.sessions || [])
+        setSessions(data?.sessions || [])
+      } else {
+        toast.error('Failed to load session information')
       }
-    } catch (error) {
-      toast.error('Failed to load sessions')
+    } catch {
+      toast.error('Failed to load session information')
     } finally {
       setLoading(false)
     }
@@ -56,6 +53,7 @@ export default function SecuritySettings() {
   const fetchSecurityStats = async () => {
     try {
       const token = localStorage.getItem('token')
+      if (!token) return
       const res = await fetch(`${API_BASE_URL}/users/security-stats`, {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -66,38 +64,44 @@ export default function SecuritySettings() {
         setAccountCreated(data.accountCreated)
         setTotalLogins(data.totalLogins || 0)
       }
-    } catch (error) {
-      // Silent fail
+    } catch {
+      // Security stats are optional; session controls remain available.
     }
   }
 
-  const handleLogoutSession = async (sessionId: string) => {
-    setLogoutingSessionId(sessionId)
+  const clearLocalSession = () => {
+    localStorage.removeItem('token')
+    router.push('/auth/login')
+  }
 
+  const handleLogoutCurrent = async () => {
+    const current = sessions.find((session) => session.isCurrent)
+    if (!current) return
+
+    setLogoutCurrentLoading(true)
     try {
       const token = localStorage.getItem('token')
-      const res = await fetch(`${API_BASE_URL}/auth/sessions/${sessionId}`, {
+      const res = await fetch(`${API_BASE_URL}/auth/sessions/${current.id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
 
-      if (res.ok) {
-        toast.success('Session logged out')
-        setSessions((prev) => prev.filter((s) => s.id !== sessionId))
-      } else {
-        const error = await res.json()
-        toast.error(error.message || 'Failed to logout session')
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.message || 'Failed to revoke current session')
       }
+
+      toast.success('Current session revoked')
+      clearLocalSession()
     } catch (error) {
-      toast.error('Something went wrong')
+      toast.error(error instanceof Error ? error.message : 'Something went wrong')
     } finally {
-      setLogoutingSessionId(null)
+      setLogoutCurrentLoading(false)
     }
   }
 
   const handleLogoutAll = async () => {
     setLogoutAllLoading(true)
-
     try {
       const token = localStorage.getItem('token')
       const res = await fetch(`${API_BASE_URL}/auth/logout-all`, {
@@ -105,29 +109,17 @@ export default function SecuritySettings() {
         headers: { Authorization: `Bearer ${token}` },
       })
 
-      if (res.ok) {
-        toast.success('Logged out from all devices')
-        localStorage.clear()
-        router.push('/login')
-      } else {
-        const error = await res.json()
-        toast.error(error.message || 'Failed to logout')
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}))
+        throw new Error(error.message || 'Failed to logout all sessions')
       }
+
+      toast.success('All sessions have been revoked')
+      clearLocalSession()
     } catch (error) {
-      toast.error('Something went wrong')
+      toast.error(error instanceof Error ? error.message : 'Something went wrong')
     } finally {
       setLogoutAllLoading(false)
-    }
-  }
-
-  const getDeviceIcon = (type: string) => {
-    switch (type) {
-      case 'mobile':
-        return <Smartphone className="h-5 w-5" />
-      case 'tablet':
-        return <Smartphone className="h-5 w-5" />
-      default:
-        return <Monitor className="h-5 w-5" />
     }
   }
 
@@ -142,23 +134,21 @@ export default function SecuritySettings() {
     )
   }
 
+  const currentSession = sessions.find((session) => session.isCurrent)
+
   return (
     <div className="divide-y divide-border">
-      {/* Header */}
       <div className="p-6">
         <h2 className="text-2xl font-bold text-foreground">Security</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Manage your login sessions and security preferences
+          Review your current login session and revoke access when needed.
         </p>
       </div>
 
-      {/* Security Overview */}
       <div className="p-6 space-y-4">
         <div>
           <h3 className="text-lg font-semibold text-foreground mb-1">Security Overview</h3>
-          <p className="text-sm text-muted-foreground">
-            Your account security at a glance
-          </p>
+          <p className="text-sm text-muted-foreground">Your account security at a glance</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -169,9 +159,7 @@ export default function SecuritySettings() {
             </div>
             <p className="text-2xl font-bold text-foreground">
               {accountCreated
-                ? Math.floor(
-                    (Date.now() - new Date(accountCreated).getTime()) / (1000 * 60 * 60 * 24)
-                  )
+                ? Math.max(0, Math.floor((Date.now() - new Date(accountCreated).getTime()) / 86400000))
                 : 0}
             </p>
             <p className="text-xs text-muted-foreground">days</p>
@@ -183,136 +171,78 @@ export default function SecuritySettings() {
               <span className="text-xs font-medium text-muted-foreground">Password Changed</span>
             </div>
             <p className="text-sm font-medium text-foreground">
-              {lastPasswordChange
-                ? new Date(lastPasswordChange).toLocaleDateString()
-                : 'Never'}
+              {lastPasswordChange ? new Date(lastPasswordChange).toLocaleDateString() : 'Not available'}
             </p>
           </div>
 
           <div className="p-4 rounded-lg border border-border bg-card">
             <div className="flex items-center gap-2 mb-2">
               <CheckCircle2 className="h-4 w-4 text-primary" />
-              <span className="text-xs font-medium text-muted-foreground">Active Sessions</span>
+              <span className="text-xs font-medium text-muted-foreground">Recorded Logins</span>
             </div>
-            <p className="text-2xl font-bold text-foreground">{sessions.length}</p>
-            <p className="text-xs text-muted-foreground">devices</p>
+            <p className="text-2xl font-bold text-foreground">{totalLogins}</p>
+            <p className="text-xs text-muted-foreground">logins</p>
           </div>
         </div>
       </div>
 
-      {/* Active Sessions */}
       <div className="p-6 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-foreground mb-1">Active Sessions</h3>
+            <h3 className="text-lg font-semibold text-foreground mb-1">Current Session</h3>
             <p className="text-sm text-muted-foreground">
-              Manage devices currently logged into your account
+              DevSocial only displays the session represented by this access token. “Log out all devices” revokes every Supabase session for your account.
             </p>
           </div>
-          {sessions.length > 1 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleLogoutAll}
-              disabled={logoutAllLoading}
-            >
-              {logoutAllLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                  Logging out...
-                </>
-              ) : (
-                <>
-                  <LogOut className="mr-2 h-3 w-3" />
-                  Logout All
-                </>
-              )}
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleLogoutCurrent} disabled={!currentSession || logoutCurrentLoading}>
+              {logoutCurrentLoading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <LogOut className="mr-2 h-3 w-3" />}
+              This session
             </Button>
-          )}
+            <Button variant="destructive" size="sm" onClick={handleLogoutAll} disabled={logoutAllLoading}>
+              {logoutAllLoading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <LogOut className="mr-2 h-3 w-3" />}
+              All devices
+            </Button>
+          </div>
         </div>
 
-        {sessions.length === 0 ? (
+        {!currentSession ? (
           <div className="text-center py-8 border border-border rounded-lg">
             <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No active sessions</p>
+            <p className="text-sm text-muted-foreground">No active session could be verified.</p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {sessions.map((session) => (
-              <div
-                key={session.id}
-                className="flex items-start justify-between gap-4 p-4 rounded-lg border border-border bg-card"
-              >
-                <div className="flex items-start gap-3 flex-1">
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    {getDeviceIcon(session.deviceType)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-medium text-foreground">
-                        {session.browser} on {session.os}
-                      </h4>
-                      {session.isCurrent && (
-                        <span className="px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded">
-                          Current
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {session.location} • {session.ipAddress}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Last active:{' '}
-                      {new Date(session.lastActive).toLocaleString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                    </p>
-                  </div>
-                </div>
-                {!session.isCurrent && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleLogoutSession(session.id)}
-                    disabled={logoutingSessionId === session.id}
-                  >
-                    {logoutingSessionId === session.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <LogOut className="h-4 w-4" />
-                    )}
-                  </Button>
-                )}
+          <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-card">
+            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Monitor className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <h4 className="font-medium text-foreground">Current browser session</h4>
+                <span className="px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded">Current</span>
               </div>
-            ))}
+              <p className="text-xs text-muted-foreground">
+                Verified: {new Date(currentSession.lastActive).toLocaleString()}
+              </p>
+              {currentSession.expiresAt && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Access token expires: {new Date(currentSession.expiresAt).toLocaleString()}
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Two-Factor Authentication (Coming Soon) */}
       <div className="p-6 space-y-4">
         <div>
-          <h3 className="text-lg font-semibold text-foreground mb-1">
-            Two-Factor Authentication
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Add an extra layer of security to your account
-          </p>
+          <h3 className="text-lg font-semibold text-foreground mb-1">Two-Factor Authentication</h3>
+          <p className="text-sm text-muted-foreground">Add an extra layer of security to your account</p>
         </div>
-
-        <div className="p-4 rounded-lg border-2 border-dashed border-border bg-muted/30">
-          <div className="text-center py-4">
-            <Shield className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm font-medium text-foreground mb-1">
-              Two-Factor Authentication
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Coming soon - Protect your account with 2FA
-            </p>
-          </div>
+        <div className="p-4 rounded-lg border-2 border-dashed border-border bg-muted/30 text-center py-8">
+          <Shield className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+          <p className="text-sm font-medium text-foreground mb-1">Two-Factor Authentication</p>
+          <p className="text-xs text-muted-foreground">Coming soon</p>
         </div>
       </div>
     </div>
