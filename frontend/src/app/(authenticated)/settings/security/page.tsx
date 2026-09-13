@@ -5,7 +5,8 @@ import { Loader2, LogOut, Shield, AlertCircle, CheckCircle2, Clock, Monitor } fr
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { useRouter } from '@/lib/navigation'
-import { API_BASE_URL } from '@/lib/env'
+import api from '@/lib/api'
+import { setAccessToken } from '@/lib/auth-token'
 
 type Session = {
   id: string
@@ -31,18 +32,8 @@ export default function SecuritySettings() {
 
   const fetchSessions = async () => {
     try {
-      const token = localStorage.getItem('token')
-      if (!token) return
-      const res = await fetch(`${API_BASE_URL}/auth/sessions`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-
-      if (res.ok) {
-        const { data } = await res.json()
-        setSessions(data?.sessions || [])
-      } else {
-        toast.error('Failed to load session information')
-      }
+      const response: any = await api.get('/auth/sessions')
+      setSessions(response?.data?.sessions || [])
     } catch {
       toast.error('Failed to load session information')
     } finally {
@@ -52,25 +43,20 @@ export default function SecuritySettings() {
 
   const fetchSecurityStats = async () => {
     try {
-      const token = localStorage.getItem('token')
-      if (!token) return
-      const res = await fetch(`${API_BASE_URL}/users/security-stats`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-
-      if (res.ok) {
-        const { data } = await res.json()
+      const response: any = await api.get('/users/security-stats')
+      const data = response?.data
+      if (data) {
         setLastPasswordChange(data.lastPasswordChange)
         setAccountCreated(data.accountCreated)
         setTotalLogins(data.totalLogins || 0)
       }
     } catch {
-      // Security stats are optional; session controls remain available.
+      // Optional overview data; session revocation remains available.
     }
   }
 
-  const clearLocalSession = () => {
-    localStorage.removeItem('token')
+  const clearClientSession = () => {
+    setAccessToken(null)
     router.push('/auth/login')
   }
 
@@ -80,21 +66,11 @@ export default function SecuritySettings() {
 
     setLogoutCurrentLoading(true)
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`${API_BASE_URL}/auth/sessions/${current.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({}))
-        throw new Error(error.message || 'Failed to revoke current session')
-      }
-
+      await api.delete(`/auth/sessions/${current.id}`)
       toast.success('Current session revoked')
-      clearLocalSession()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Something went wrong')
+      clearClientSession()
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to revoke current session')
     } finally {
       setLogoutCurrentLoading(false)
     }
@@ -103,21 +79,11 @@ export default function SecuritySettings() {
   const handleLogoutAll = async () => {
     setLogoutAllLoading(true)
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`${API_BASE_URL}/auth/logout-all`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({}))
-        throw new Error(error.message || 'Failed to logout all sessions')
-      }
-
+      await api.post('/auth/logout-all', {})
       toast.success('All sessions have been revoked')
-      clearLocalSession()
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Something went wrong')
+      clearClientSession()
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to logout all sessions')
     } finally {
       setLogoutAllLoading(false)
     }
@@ -191,7 +157,7 @@ export default function SecuritySettings() {
           <div>
             <h3 className="text-lg font-semibold text-foreground mb-1">Current Session</h3>
             <p className="text-sm text-muted-foreground">
-              DevSocial only displays the session represented by this access token. “Log out all devices” revokes every Supabase session for your account.
+              DevSocial verifies this browser session against Supabase. Use “All devices” to revoke every active login for your account.
             </p>
           </div>
           <div className="flex gap-2">
