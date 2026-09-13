@@ -1,366 +1,304 @@
 import {
-    ConflictException,
-    Injectable,
-    InternalServerErrorException,
-    UnauthorizedException,
-    BadRequestException,
-    ForbiddenException,
-    Logger,
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { SupabaseService } from '../common/supabase/supabase.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyDto } from './dto/verify.dto';
-import { ConfigService } from '@nestjs/config';
 import { ReferralsService } from '../referrals/referrals.service';
+
+function decodeJwtPayload(token: string): Record<string, unknown> {
+  try {
+    const payload = token.split('.')[1];
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch {
+    return {};
+  }
+}
 
 @Injectable()
 export class AuthService {
-    private readonly logger = new Logger(AuthService.name);
+  private readonly logger = new Logger(AuthService.name);
 
-    constructor(
-        private readonly prisma: PrismaService,
-        private readonly supabase: SupabaseService,
-        private readonly jwtService: JwtService,
-        private readonly configService: ConfigService,
-        private readonly referralsService: ReferralsService,
-    ) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly supabase: SupabaseService,
+    private readonly configService: ConfigService,
+    private readonly referralsService: ReferralsService,
+  ) {}
 
-    async register(dto: RegisterDto) {
-        if (dto.referralCode) {
-            const validation = await this.referralsService.validateReferralCode(dto.referralCode);
-            if (!validation.valid) {
-                throw new BadRequestException('Invalid referral code');
-            }
-        }
-
-        // 1. Create user in Supabase Auth (standard signUp to trigger emails)
-        const { data: authData, error: authError } = await this.supabase.client.auth.signUp({
-            email: dto.email,
-            password: dto.password,
-            options: {
-                data: {
-                    username: dto.username,
-                    full_name: `${dto.firstName} ${dto.lastName}`,
-                },
-            },
-        });
-
-        if (authError || !authData.user) {
-            if (authError?.message.includes('already registered')) {
-                throw new ConflictException('User with this email already exists');
-            }
-            throw new InternalServerErrorException(authError?.message || 'Failed to create auth user');
-        }
-
-        const userId = authData.user.id;
-
-        // 2. Create user in our Postgres DB via Prisma
-        try {
-            const user = await this.prisma.user.create({
-                data: {
-                    supabaseAuthId: userId,
-                    email: dto.email,
-                    username: dto.username,
-                    firstName: dto.firstName,
-                    lastName: dto.lastName,
-                    displayName: `${dto.firstName} ${dto.lastName}`,
-                    birthMonth: dto.birthMonth,
-                    birthDay: dto.birthDay,
-                    affiliation: dto.affiliation || "Other",
-                    // Initialize user stats (optionally done via trigger or separate call)
-                },
-            });
-
-            // Initialize user stats
-            await this.prisma.userStats.create({
-                data: {
-                    userId: user.id,
-                },
-            });
-
-            if (dto.referralCode) {
-                await this.referralsService.createCompletedReferral(dto.referralCode, user.id);
-            }
-
-            return user;
-        } catch (dbError) {
-            // Rollback Supabase user if DB creation fails
-            await this.supabase.client.auth.admin.deleteUser(userId);
-
-            if (dbError.code === 'P2002') {
-                throw new ConflictException('Username or email already taken in database');
-            }
-            throw new InternalServerErrorException('Failed to create user profile');
-        }
+  async register(dto: RegisterDto) {
+    if (dto.referralCode) {
+      const validation = await this.referralsService.validateReferralCode(dto.referralCode);
+      if (!validation.valid) {
+        throw new BadRequestException('Invalid referral code');
+      }
     }
 
-    async verifyOtp(dto: VerifyDto) {
-        const { data, error } = await this.supabase.client.auth.verifyOtp({
-            email: dto.email,
-            token: dto.token,
-            type: 'signup',
-        });
+    const email = dto.email.trim().toLowerCase();
+    const username = dto.username.trim();
+    const { data: authData, error: authError } = await this.supabase.client.auth.signUp({
+      email,
+      password: dto.password,
+      options: {
+        data: {
+          username,
+          full_name: `${dto.firstName} ${dto.lastName}`.trim(),
+        },
+      },
+    });
 
-        if (error || !data.user) {
-            this.logger.error(`OTP Verification failed: ${error?.message || 'No user data returned'}`);
-            throw new BadRequestException(error?.message || 'Verification failed');
-        }
-
-        // The user is now verified in Supabase. 
-        // We can also update our local User record if we have a 'isVerified' flag.
-        await this.prisma.user.update({
-            where: { supabaseAuthId: data.user.id },
-            data: { isVerified: true },
-        });
-
-        return {
-            success: true,
-            message: 'Email verified successfully',
-            user: data.user,
-        };
+    if (authError || !authData.user) {
+      if (authError?.message.toLowerCase().includes('already registered')) {
+        throw new ConflictException('User with this email already exists');
+      }
+      throw new InternalServerErrorException(authError?.message || 'Failed to create auth user');
     }
 
-    async forgotPassword(dto: { email: string }) {
-        const email = dto.email.toLowerCase();
-        const redirectTo = `${this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173'}/auth/reset-password`;
-        const genericResponse = {
-            success: true,
-            message: "If an account with that email exists, we've sent a password reset link.",
-        };
+    const authUserId = authData.user.id;
 
-        const user = await this.prisma.user.findUnique({
-            where: { email },
-            select: { id: true },
-        });
-
-        if (!user) {
-            return genericResponse;
-        }
-
-        const { error } = await this.supabase.client.auth.resetPasswordForEmail(email, {
-            redirectTo,
-        });
-
-        if (error) {
-            this.logger.error(`Password reset request failed for ${email}: ${error.message}`);
-            throw new InternalServerErrorException('Failed to process password reset request');
-        }
-
-        return genericResponse;
-    }
-
-    async login(dto: LoginDto) {
-        let email = dto.usernameOrEmail;
-
-        // If it is a username, we need to find the email first
-        if (!email.includes('@')) {
-            const userRecord = await this.prisma.user.findUnique({
-                where: { username: email },
-                select: { email: true },
-            });
-
-            if (!userRecord) {
-                throw new UnauthorizedException('Invalid credentials');
-            }
-            email = userRecord.email;
-        }
-
-        const { data, error } = await this.supabase.client.auth.signInWithPassword({
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            supabaseAuthId: authUserId,
             email,
-            password: dto.password,
+            username,
+            firstName: dto.firstName,
+            lastName: dto.lastName,
+            displayName: `${dto.firstName} ${dto.lastName}`.trim(),
+            birthMonth: dto.birthMonth,
+            birthDay: dto.birthDay,
+            affiliation: dto.affiliation || 'Other',
+          },
         });
 
-        if (error) {
-            if (error.message.toLowerCase().includes('email not confirmed')) {
-                throw new UnauthorizedException('Please verify your email address before logging in.');
-            }
-            throw new UnauthorizedException('Invalid credentials');
-        }
+        await tx.userStats.create({ data: { userId: user.id } });
+        return user;
+      });
+    } catch (dbError: any) {
+      await this.supabase.client.auth.admin.deleteUser(authUserId);
+      if (dbError?.code === 'P2002') {
+        throw new ConflictException('Username or email already taken in database');
+      }
+      throw new InternalServerErrorException('Failed to create user profile');
+    }
+  }
 
-        // Fetch our user record to include in response
-        const user = await this.prisma.user.findUnique({
-            where: { supabaseAuthId: data.user.id },
-        });
+  async verifyOtp(dto: VerifyDto) {
+    const { data, error } = await this.supabase.client.auth.verifyOtp({
+      email: dto.email.trim().toLowerCase(),
+      token: dto.token,
+      type: 'signup',
+    });
 
-        if (!user) {
-            throw new UnauthorizedException('User profile not found');
-        }
-
-        // 3. Generate our own JWT for the backend session
-        const accessToken = this.jwtService.sign({
-            sub: user.id,
-            email: user.email,
-            role: user.role,
-        });
-
-        return {
-            user,
-            session: {
-                access_token: accessToken,
-                supabase_token: data.session.access_token, // Pass along if needed for storage etc.
-            },
-        };
+    if (error || !data.user) {
+      this.logger.warn(`OTP verification failed: ${error?.message || 'no user returned'}`);
+      throw new BadRequestException(error?.message || 'Verification failed');
     }
 
-    async devVerifyUser(email: string) {
-        // 1. Get user by email to get their ID
-        const { data: { users }, error: listError } = await this.supabase.client.auth.admin.listUsers();
-        const authUser = users?.find((u: any) => u.email === email);
+    await this.prisma.user.update({
+      where: { supabaseAuthId: data.user.id },
+      data: { isVerified: true },
+    });
 
-        if (!authUser) {
-            throw new BadRequestException('User not found in Supabase');
-        }
+    return { success: true, message: 'Email verified successfully' };
+  }
 
-        // 2. Confirm user in Supabase
-        const { error: updateError } = await this.supabase.client.auth.admin.updateUserById(
-            authUser.id,
-            { email_confirm: true }
-        );
+  async forgotPassword(dto: { email: string }) {
+    const email = dto.email.trim().toLowerCase();
+    const redirectTo = `${this.configService.get<string>('FRONTEND_URL') || 'http://localhost:5173'}/auth/reset-password`;
+    const genericResponse = {
+      success: true,
+      message: "If an account with that email exists, we've sent a password reset link.",
+    };
 
-        if (updateError) {
-            throw new InternalServerErrorException(updateError.message);
-        }
+    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (!user) return genericResponse;
 
-        // 3. Update local DB
-        await this.prisma.user.update({
-            where: { supabaseAuthId: authUser.id },
-            data: { isVerified: true },
-        });
-
-        return { success: true, message: `User ${email} verified (Dev Mode)` };
+    const { error } = await this.supabase.client.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) {
+      this.logger.error(`Password reset request failed: ${error.message}`);
+      throw new InternalServerErrorException('Failed to process password reset request');
     }
 
-    async getMe(userId: string) {
-        const user = await this.prisma.user.findUnique({
-            where: { id: userId },
-            select: {
-                id: true,
-                email: true,
-                username: true,
-                firstName: true,
-                lastName: true,
-                displayName: true,
-                avatar: true,
-                bannerUrl: true,
-                bio: true,
-                location: true,
-                techCareerPath: true,
-                techStack: true,
-                experienceLevel: true,
-                githubUsername: true,
-                linkedinUrl: true,
-                portfolioUrl: true,
-                isVerified: true,
-                createdAt: true,
-            },
-        });
+    return genericResponse;
+  }
 
-        if (!user) {
-            throw new UnauthorizedException('User not found');
-        }
+  async login(dto: LoginDto) {
+    let email = dto.usernameOrEmail.trim();
 
-        return { data: user };
+    if (!email.includes('@')) {
+      const userRecord = await this.prisma.user.findUnique({
+        where: { username: email },
+        select: { email: true },
+      });
+      if (!userRecord) throw new UnauthorizedException('Invalid credentials');
+      email = userRecord.email;
     }
 
-    async changePassword(userId: string, dto: { currentPassword: string; newPassword: string }) {
-        // Get user to get their Supabase auth ID
-        const user = await this.prisma.user.findUnique({
-            where: { id: userId },
-            select: { supabaseAuthId: true, email: true },
-        });
+    email = email.toLowerCase();
+    const { data, error } = await this.supabase.client.auth.signInWithPassword({
+      email,
+      password: dto.password,
+    });
 
-        if (!user) {
-            throw new UnauthorizedException('User not found');
-        }
-
-        // Verify current password by attempting to sign in
-        const { error: signInError } = await this.supabase.client.auth.signInWithPassword({
-            email: user.email,
-            password: dto.currentPassword,
-        });
-
-        if (signInError) {
-            throw new UnauthorizedException('Current password is incorrect');
-        }
-
-        // Update password in Supabase
-        const { error: updateError } = await this.supabase.client.auth.admin.updateUserById(
-            user.supabaseAuthId,
-            { password: dto.newPassword }
-        );
-
-        if (updateError) {
-            throw new InternalServerErrorException('Failed to update password');
-        }
-
-        return { success: true, message: 'Password changed successfully' };
+    if (error || !data.session) {
+      if (error?.message.toLowerCase().includes('email not confirmed')) {
+        throw new UnauthorizedException('Please verify your email address before logging in.');
+      }
+      throw new UnauthorizedException('Invalid credentials');
     }
 
-    async deleteAccount(userId: string) {
-        // Get user to get their Supabase auth ID
-        const user = await this.prisma.user.findUnique({
-            where: { id: userId },
-            select: { supabaseAuthId: true },
-        });
+    const user = await this.prisma.user.findUnique({
+      where: { supabaseAuthId: data.user.id },
+    });
 
-        if (!user) {
-            throw new UnauthorizedException('User not found');
-        }
+    if (!user) throw new UnauthorizedException('User profile not found');
+    if (user.isBlocked) throw new UnauthorizedException('User is blocked');
 
-        // Delete from Supabase Auth (this cascades)
-        const { error } = await this.supabase.client.auth.admin.deleteUser(user.supabaseAuthId);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date(), lastActive: new Date() },
+    });
 
-        if (error) {
-            throw new InternalServerErrorException('Failed to delete account from auth');
-        }
+    return {
+      user,
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at,
+      },
+    };
+  }
 
-        // Delete from our database (cascade will handle relations)
-        await this.prisma.user.delete({
-            where: { id: userId },
-        });
+  async devVerifyUser(email: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const { data: { users } } = await this.supabase.client.auth.admin.listUsers();
+    const authUser = users?.find((u: any) => u.email?.toLowerCase() === normalizedEmail);
 
-        return { success: true, message: 'Account deleted successfully' };
+    if (!authUser) throw new BadRequestException('User not found in Supabase');
+
+    const { error } = await this.supabase.client.auth.admin.updateUserById(authUser.id, {
+      email_confirm: true,
+    });
+    if (error) throw new InternalServerErrorException(error.message);
+
+    await this.prisma.user.update({
+      where: { supabaseAuthId: authUser.id },
+      data: { isVerified: true },
+    });
+
+    return { success: true, message: `User ${normalizedEmail} verified (Dev Mode)` };
+  }
+
+  async getMe(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        displayName: true,
+        avatar: true,
+        bannerUrl: true,
+        bio: true,
+        location: true,
+        techCareerPath: true,
+        techStack: true,
+        experienceLevel: true,
+        githubUsername: true,
+        linkedinUrl: true,
+        portfolioUrl: true,
+        role: true,
+        isVerified: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) throw new UnauthorizedException('User not found');
+    return user;
+  }
+
+  async changePassword(userId: string, dto: { currentPassword: string; newPassword: string }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { supabaseAuthId: true, email: true },
+    });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const { error: signInError } = await this.supabase.client.auth.signInWithPassword({
+      email: user.email,
+      password: dto.currentPassword,
+    });
+    if (signInError) throw new UnauthorizedException('Current password is incorrect');
+
+    const { error: updateError } = await this.supabase.client.auth.admin.updateUserById(
+      user.supabaseAuthId,
+      { password: dto.newPassword },
+    );
+    if (updateError) throw new InternalServerErrorException('Failed to update password');
+
+    return { success: true, message: 'Password changed successfully' };
+  }
+
+  async deleteAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { supabaseAuthId: true },
+    });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const { error } = await this.supabase.client.auth.admin.deleteUser(user.supabaseAuthId);
+    if (error) throw new InternalServerErrorException('Failed to delete account from auth');
+
+    await this.prisma.user.delete({ where: { id: userId } });
+    return { success: true, message: 'Account deleted successfully' };
+  }
+
+  async getSessions(token: string, sessionId?: string | null) {
+    const payload = decodeJwtPayload(token);
+    const exp = typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+
+    return {
+      sessions: [
+        {
+          id: sessionId || 'current',
+          lastActive: new Date().toISOString(),
+          expiresAt: exp ? new Date(exp).toISOString() : null,
+          isCurrent: true,
+        },
+      ],
+      supportsIndividualSessionListing: false,
+    };
+  }
+
+  async logoutSession(token: string, requestedSessionId: string, currentSessionId?: string | null) {
+    if (!currentSessionId || requestedSessionId !== currentSessionId) {
+      throw new BadRequestException('Only the current session can be revoked individually');
     }
 
-    async getSessions(userId: string) {
-        // TODO: Implement proper session tracking with Redis or database
-        // For now, return mock data with current session
-        return {
-            data: {
-                sessions: [
-                    {
-                        id: '1',
-                        deviceType: 'desktop',
-                        browser: 'Chrome',
-                        os: 'Windows 11',
-                        ipAddress: '192.168.1.1',
-                        location: 'Lagos, Nigeria',
-                        lastActive: new Date().toISOString(),
-                        isCurrent: true,
-                    },
-                ],
-            },
-        };
-    }
+    const { error } = await this.supabase.client.auth.admin.signOut(token, 'local');
+    if (error) throw new InternalServerErrorException('Failed to revoke session');
 
-    async logoutSession(userId: string, sessionId: string) {
-        // TODO: Implement session invalidation
-        // For now, just return success
-        return {
-            success: true,
-            message: 'Session logged out successfully',
-        };
-    }
+    return { success: true, message: 'Current session revoked successfully' };
+  }
 
-    async logoutAll(userId: string) {
-        // TODO: Invalidate all sessions for this user
-        // For now, just return success
-        return {
-            success: true,
-            message: 'Logged out from all devices',
-        };
-    }
+  async logoutAll(token: string) {
+    const { error } = await this.supabase.client.auth.admin.signOut(token, 'global');
+    if (error) throw new InternalServerErrorException('Failed to revoke sessions');
+
+    return { success: true, message: 'Logged out from all devices' };
+  }
 }
