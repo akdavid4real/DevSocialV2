@@ -41,8 +41,8 @@ api.interceptors.response.use(
                 const token = refreshResponse.data?.data?.session?.access_token;
                 if (token) {
                     setAccessToken(token);
-                    originalRequest.headers = originalRequest.headers || {};
-                    originalRequest.headers.Authorization = `Bearer ${token}`;
+                    originalRequest.headers = originalRequest.headers ?? ({} as any);
+                    (originalRequest.headers as any).Authorization = `Bearer ${token}`;
                     const retryResponse = await api.request(originalRequest);
                     return retryResponse;
                 }
