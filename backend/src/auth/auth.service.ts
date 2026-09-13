@@ -39,9 +39,7 @@ export class AuthService {
   async register(dto: RegisterDto) {
     if (dto.referralCode) {
       const validation = await this.referralsService.validateReferralCode(dto.referralCode);
-      if (!validation.valid) {
-        throw new BadRequestException('Invalid referral code');
-      }
+      if (!validation.valid) throw new BadRequestException('Invalid referral code');
     }
 
     const email = dto.email.trim().toLowerCase();
@@ -134,6 +132,13 @@ export class AuthService {
     return genericResponse;
   }
 
+  private async getLocalUserBySupabaseId(supabaseAuthId: string) {
+    const user = await this.prisma.user.findUnique({ where: { supabaseAuthId } });
+    if (!user) throw new UnauthorizedException('User profile not found');
+    if (user.isBlocked) throw new UnauthorizedException('User is blocked');
+    return user;
+  }
+
   async login(dto: LoginDto) {
     let email = dto.usernameOrEmail.trim();
 
@@ -159,16 +164,35 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { supabaseAuthId: data.user.id },
-    });
-
-    if (!user) throw new UnauthorizedException('User profile not found');
-    if (user.isBlocked) throw new UnauthorizedException('User is blocked');
-
+    const user = await this.getLocalUserBySupabaseId(data.user.id);
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLogin: new Date(), lastActive: new Date() },
+    });
+
+    return {
+      user,
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at,
+      },
+    };
+  }
+
+  async refreshSession(refreshToken: string) {
+    const { data, error } = await this.supabase.client.auth.refreshSession({
+      refresh_token: refreshToken,
+    });
+
+    if (error || !data.session || !data.user) {
+      throw new UnauthorizedException('Refresh session is invalid or expired');
+    }
+
+    const user = await this.getLocalUserBySupabaseId(data.user.id);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastActive: new Date() },
     });
 
     return {
@@ -284,6 +308,12 @@ export class AuthService {
     };
   }
 
+  async logoutCurrent(token: string) {
+    const { error } = await this.supabase.client.auth.admin.signOut(token, 'local');
+    if (error) throw new InternalServerErrorException('Failed to revoke current session');
+    return { success: true, message: 'Logged out successfully' };
+  }
+
   async logoutSession(token: string, requestedSessionId: string, currentSessionId?: string | null) {
     if (!currentSessionId || requestedSessionId !== currentSessionId) {
       throw new BadRequestException('Only the current session can be revoked individually');
@@ -291,14 +321,12 @@ export class AuthService {
 
     const { error } = await this.supabase.client.auth.admin.signOut(token, 'local');
     if (error) throw new InternalServerErrorException('Failed to revoke session');
-
     return { success: true, message: 'Current session revoked successfully' };
   }
 
   async logoutAll(token: string) {
     const { error } = await this.supabase.client.auth.admin.signOut(token, 'global');
     if (error) throw new InternalServerErrorException('Failed to revoke sessions');
-
     return { success: true, message: 'Logged out from all devices' };
   }
 }
