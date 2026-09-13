@@ -1,0 +1,21 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+
+# Dependencies and generated build output
+node_modules/
+.next/
+dist/
+build/
+coverage/
+.expo/
+web-build/
+
+# Local database exports may contain application data
+backend/backups/
+
+# Tooling and operating-system files
+.vercel/
+.DS_Store
+*.log

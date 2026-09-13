@@ -1,0 +1,1021 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// --- 3.1 Core — Users & Auth ---
+
+model User {
+  id                String    @id @default(uuid()) @db.Uuid
+  supabaseAuthId    String    @unique // Links to Supabase Auth user
+  email             String    @unique
+  username          String    @unique
+  firstName         String?
+  lastName          String?
+  displayName       String?
+  bio               String?   @default("") @db.VarChar(250)
+  avatar            String    @default("")
+  bannerUrl         String    @default("")
+  role              UserRole  @default(USER)
+  gender            Gender?
+  userType          UserType?
+  affiliation       String    @default("Other") @db.VarChar(100)
+  birthMonth        Int?
+  birthDay          Int?
+
+  // Tech profile
+  techCareerPath    String?
+  techStack         String[]  @default([])
+  experienceLevel   ExperienceLevel @default(BEGINNER)
+  githubUsername    String?
+  linkedinUrl       String?
+  portfolioUrl      String?
+
+  // Gamification (denormalized for fast reads)
+  points            Int       @default(10)
+  level             Int       @default(1)
+  badges            String[]  @default([])
+  loginStreak       Int       @default(0)
+  lastStreakDate    DateTime?
+  isPremium         Boolean   @default(false)
+  isGenerated       Boolean   @default(false) // For bot-created users
+
+  // Referral
+  referralCode      String?   @unique
+
+  // Counts (denormalized)
+  followersCount    Int       @default(0)
+  followingCount    Int       @default(0)
+
+  // Pinned posts (max 3)
+  pinnedPosts       String[]  @default([]) @db.Uuid
+
+  // Status
+  isVerified        Boolean   @default(false)
+  isBlocked         Boolean   @default(false)
+  onboardingCompleted Boolean @default(false)
+  lastActive        DateTime  @default(now())
+  lastLogin         DateTime?
+
+  // Location & source
+  location          String?
+  website           String?
+  country           String?
+  interests         String[]  @default([])
+  registrationSource RegistrationSource @default(DIRECT)
+
+  // Settings (JSONB — flexible, not frequently queried)
+  appearanceSettings  Json?   @default("{}")
+  privacySettings     Json?   @default("{}")
+  notificationSettings Json?  @default("{}")
+  pushSubscription    Json?
+
+  // AI usage tracking
+  aiUsage           Json?     @default("{}")
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  posts             Post[]
+  comments          Comment[]
+  sentMessages      Message[] @relation("SentMessages")
+  receivedMessages  Message[] @relation("ReceivedMessages")
+  projects          Project[]
+  xpLogs            XpLog[]
+  activities        Activity[]
+  notifications     Notification[] @relation("RecipientNotifications")
+  sentNotifications Notification[] @relation("SenderNotifications")
+  likes             Like[]         @relation("UserLikes")
+  mentionsReceived  UserMention[]  @relation("MentionedUsers")
+  mentionsSent      UserMention[]  @relation("Mentioners")
+
+  @@index([points(sort: Desc)])
+  @@index([lastActive(sort: Desc)])
+  @@index([followersCount(sort: Desc)])
+}
+
+model Affiliation {
+  id        String   @id @default(uuid()) @db.Uuid
+  category  String   // e.g., "Nigerian_Universities", "TechbootCamps"
+  subType   String   // e.g., "Federal", "Private", "NIIT_Centres"
+  name      String   @unique
+  createdAt DateTime @default(now())
+}
+
+// --- 3.2 Social — Posts, Comments, Likes, Follows ---
+
+model Post {
+  id              String    @id @default(uuid()) @db.Uuid
+  authorId        String    @db.Uuid
+  communityId     String?   @db.Uuid
+  content         String    @default("") @db.Text
+  isAnonymous     Boolean   @default(false)
+  imageUrl        String?
+  imageUrls       String[]  @default([])
+  videoUrls       String[]  @default([])
+
+  // Denormalized counts
+  likesCount      Int       @default(0)
+  commentsCount   Int       @default(0)
+  viewsCount      Int       @default(0)
+  xpAwarded       Int       @default(20)
+
+  // Status for Admin Governance
+  status          PostStatus @default(ACTIVE) // PENDING_REVIEW, ACTIVE, ARCHIVED, BLOCKED
+
+  // SEO
+  slug            String?   @unique
+  metaTitle       String?
+  metaDescription String?
+
+  // Media (Improved)
+  media           PostMedia[]
+
+  // Poll (JSONB — complex nested structure)
+  poll            Json?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  author          User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  community       Community? @relation(fields: [communityId], references: [id])
+  comments        Comment[]
+  // Removed likes relation - now handled polymorphically via targetId
+  tags            PostTag[]
+  mentions        UserMention[]
+  views           View[]
+  auditLogs       AuditLog[] @relation("PostAudit")
+
+  @@index([authorId, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([status])
+}
+
+model PostMedia {
+  id              String    @id @default(uuid()) @db.Uuid
+  postId          String    @db.Uuid
+  url             String
+  type            MediaType @default(IMAGE)
+  isPrimary       Boolean   @default(false)
+  order           Int       @default(0)
+
+  post            Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+model Comment {
+  id              String    @id @default(uuid()) @db.Uuid
+  authorId        String    @db.Uuid
+  postId          String    @db.Uuid
+  parentId        String?   @db.Uuid  // Self-referential for threads
+  content         String    @db.VarChar(500)
+  imageUrls       String[]  @default([])
+  videoUrls       String[]  @default([])
+  likesCount      Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  author          User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  post            Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent          Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies         Comment[] @relation("CommentReplies")
+
+  @@index([postId, createdAt(sort: Desc)])
+}
+
+model Like {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  targetId        String    @db.Uuid
+  targetType      LikeTargetType
+
+  createdAt       DateTime  @default(now())
+
+  user            User      @relation("UserLikes", fields: [userId], references: [id], onDelete: Cascade)
+  // Removed post relation to allow polymorphic behavior (targetId can be Post OR Comment)
+
+  @@unique([userId, targetId, targetType])
+  @@index([targetId, targetType])
+}
+
+model Follow {
+  id              String    @id @default(uuid()) @db.Uuid
+  followerId      String    @db.Uuid
+  followingId     String    @db.Uuid
+  createdAt       DateTime  @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+model Block {
+  id              String    @id @default(uuid()) @db.Uuid
+  blockerId       String    @db.Uuid
+  blockedId       String    @db.Uuid
+  reason          BlockReason @default(OTHER)
+  createdAt       DateTime  @default(now())
+
+  @@unique([blockerId, blockedId])
+}
+
+// --- 3.3 Tags & Mentions ---
+
+model Tag {
+  id              String    @id @default(uuid()) @db.Uuid
+  name            String    @unique
+  slug            String    @unique
+  description     String?   @db.VarChar(200)
+  color           String    @default("#3b82f6")
+  usageCount      Int       @default(0)
+  isOfficial      Boolean   @default(false)
+  createdById     String    @db.Uuid
+  createdAt       DateTime  @default(now())
+
+  posts           PostTag[]
+
+  @@index([usageCount(sort: Desc)])
+}
+
+model PostTag {
+  postId          String    @db.Uuid
+  tagId           String    @db.Uuid
+
+  post            Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag             Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+}
+
+model UserMention {
+  id              String    @id @default(uuid()) @db.Uuid
+  postId          String    @db.Uuid
+  commentId       String?   @db.Uuid
+  mentionerId     String    @db.Uuid
+  mentionedId     String    @db.Uuid
+  createdAt       DateTime  @default(now())
+
+  post            Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  mentioner       User      @relation("Mentioners", fields: [mentionerId], references: [id])
+  mentioned       User      @relation("MentionedUsers", fields: [mentionedId], references: [id])
+
+  @@index([mentionedId, createdAt(sort: Desc)])
+}
+
+// --- 3.4 Messaging ---
+
+model Conversation {
+  id              String    @id @default(uuid()) @db.Uuid
+  lastActivity    DateTime  @default(now())
+  isArchived      Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  participants    ConversationParticipant[]
+  messages        Message[]
+
+  @@index([lastActivity(sort: Desc)])
+}
+
+model ConversationParticipant {
+  conversationId  String    @db.Uuid
+  userId          String    @db.Uuid
+  unreadCount     Int       @default(0)
+  joinedAt        DateTime  @default(now())
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+}
+
+model Message {
+  id              String    @id @default(uuid()) @db.Uuid
+  conversationId  String    @db.Uuid
+  senderId        String    @db.Uuid
+  receiverId      String    @db.Uuid
+  content         String    @db.VarChar(2000)
+  messageType     MessageType @default(TEXT)
+  fileUrl         String?
+  fileName        String?
+  fileSize        Int?
+  replyToId       String?   @db.Uuid
+  isDeleted       Boolean   @default(false)
+  deletedAt       DateTime?
+  read            Boolean   @default(false)
+
+  // Reactions & read receipts as JSONB (variable-length arrays)
+  reactions       Json?     @default("[]")
+  readBy          Json?     @default("[]")
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          User      @relation("SentMessages", fields: [senderId], references: [id])
+  receiver        User      @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  replyTo         Message?  @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies         Message[] @relation("MessageReplies")
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([receiverId, createdAt(sort: Desc)])
+}
+
+// --- 3.5 Communities ---
+
+model Community {
+  id              String    @id @default(uuid()) @db.Uuid
+  name            String    @db.VarChar(50)
+  slug            String    @unique
+  description     String    @db.VarChar(500)
+  avatar          String?
+  banner          String?
+  category        CommunityCategory
+  tags            String[]  @default([])
+  creatorId       String    @db.Uuid
+  isPrivate       Boolean   @default(false)
+  rules           String[]  @default([])
+
+  // Denormalized counts
+  memberCount     Int       @default(0)
+  postCount       Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  posts           Post[]
+  members         CommunityMember[]
+
+  @@index([category])
+  @@index([memberCount(sort: Desc)])
+}
+
+model CommunityMember {
+  communityId     String    @db.Uuid
+  userId          String    @db.Uuid
+  role            CommunityMemberRole @default(MEMBER)
+  joinedAt        DateTime  @default(now())
+
+  community       Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@id([communityId, userId])
+}
+
+// --- 3.6 Gamification ---
+
+model XpLog {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  type            XpEventType
+  xpAmount        Float
+  refId           String?   @db.Uuid
+
+  createdAt       DateTime  @default(now())
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([type, createdAt(sort: Desc)])
+}
+
+model UserStats {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @unique @db.Uuid
+  totalXP         Int       @default(0)
+  currentLevel    Int       @default(1)
+  currentRank     String    @default("tech_jjc")
+
+  postsCount      Int       @default(0)
+  commentsCount   Int       @default(0)
+  likesReceived   Int       @default(0)
+  likesGiven      Int       @default(0)
+  totalReferrals  Int       @default(0)
+
+  loginStreak     Int       @default(0)
+  longestStreak   Int       @default(0)
+  lastLoginDate   DateTime?
+
+  badgesEarned    String[]  @default([])
+  challengesCompleted Int   @default(0)
+
+  weeklyXP        Int       @default(0)
+  monthlyXP       Int       @default(0)
+  weeklyRank      Int       @default(0)
+  monthlyRank     Int       @default(0)
+
+  lastActiveAt    DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  snapshots       LeaderboardSnapshot[]
+
+  @@index([totalXP(sort: Desc)])
+  @@index([weeklyXP(sort: Desc)])
+}
+
+model LeaderboardSnapshot {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  rank            Int
+  totalXP         Int
+  type            SnapshotType // ALL_TIME, WEEKLY, MONTHLY
+  userStatsId     String    @db.Uuid
+
+  createdAt       DateTime  @default(now())
+
+  userStats       UserStats @relation(fields: [userStatsId], references: [id])
+
+  @@index([userId, type])
+  @@index([createdAt(sort: Desc)])
+}
+
+model Referral {
+  id              String    @id @default(uuid()) @db.Uuid
+  referrerId      String    @db.Uuid
+  referredId      String    @db.Uuid
+  referralCode    String    @unique
+  status          ReferralStatus @default(PENDING)
+  expiresAt       DateTime
+  completedAt     DateTime?
+  rewardsClaimed  Boolean   @default(false)
+  referrerReward  Int       @default(25)
+  referredReward  Int       @default(15)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([referrerId, status])
+  @@index([referredId, status])
+}
+
+// --- 3.7 Missions & Challenges ---
+
+model Mission {
+  id              String    @id @default(uuid()) @db.Uuid
+  title           String    @db.VarChar(100)
+  description     String    @db.VarChar(500)
+  type            MissionType
+  difficulty      Difficulty
+  duration        MissionDuration
+  steps           Json      // Array of { id, title, description, target, metric }
+  rewards         Json      // { xp, badge?, title?, specialReward? }
+  prerequisites   String[]  @default([])
+  isActive        Boolean   @default(true)
+  participantCount Int      @default(0)
+  completionCount  Int      @default(0)
+  createdById     String    @db.Uuid
+  aiGenerated     Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  progress        MissionProgress[]
+
+  @@index([isActive, type, difficulty])
+}
+
+model MissionProgress {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  missionId       String    @db.Uuid
+  status          ProgressStatus @default(ACTIVE)
+  currentStep     Int       @default(0)
+  stepsCompleted  String[]  @default([])
+  progress        Json?     @default("[]")
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+  xpEarned        Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  mission         Mission   @relation(fields: [missionId], references: [id])
+
+  @@unique([userId, missionId])
+  @@index([userId, status])
+}
+
+model WeeklyChallenge {
+  id              String    @id @default(uuid()) @db.Uuid
+  title           String    @db.VarChar(100)
+  description     String    @db.VarChar(500)
+  type            ChallengeType
+  difficulty      ChallengeDifficulty
+  requirements    Json      // { target, metric, description }
+  rewards         Json      // { xp, badge?, title? }
+  startDate       DateTime
+  endDate         DateTime
+  isActive        Boolean   @default(true)
+  participantCount Int      @default(0)
+  completionCount  Int      @default(0)
+  firstCompletionBonus Int  @default(10)
+  createdById     String    @db.Uuid
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  participations  ChallengeParticipation[]
+
+  @@index([isActive, startDate, endDate])
+}
+
+model ChallengeParticipation {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  challengeId     String    @db.Uuid
+  status          ProgressStatus @default(ACTIVE)
+  progress        Int       @default(0)
+  completedAt     DateTime?
+  isFirstCompletion Boolean @default(false)
+  xpEarned        Int       @default(0)
+  submissionData  Json?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  challenge       WeeklyChallenge @relation(fields: [challengeId], references: [id])
+
+  @@unique([userId, challengeId])
+}
+
+// --- 3.8 Projects, Knowledge, Notifications, Reports, Analytics ---
+
+model Project {
+  id              String    @id @default(uuid()) @db.Uuid
+  title           String    @db.VarChar(100)
+  description     String    @db.Text
+  authorId        String    @db.Uuid
+  technologies    String[]  @default([])
+  githubUrl       String?
+  liveUrl         String?
+  images          String[]  @default([])
+  openPositions   Json?     @default("[]") // Array of position objects
+  status          ProjectStatus @default(IN_PROGRESS)
+  visibility      Visibility @default(PUBLIC)
+  views           Int       @default(0)
+  featured        Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  author          User      @relation(fields: [authorId], references: [id])
+  auditLogs       AuditLog[] @relation("ProjectAudit")
+
+  @@index([authorId, createdAt(sort: Desc)])
+  @@index([featured, createdAt(sort: Desc)])
+}
+
+model KnowledgeEntry {
+  id              String    @id @default(uuid()) @db.Uuid
+  title           String    @db.VarChar(200)
+  technology      String
+  category        KnowledgeCategory
+  content         String    @db.Text
+  codeExample     String?   @db.Text
+  tags            String[]  @default([])
+  authorId        String    @db.Uuid
+  likesCount      Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([technology, createdAt(sort: Desc)])
+  @@index([title, content]) // For basic text search
+}
+
+model Notification {
+  id              String    @id @default(uuid()) @db.Uuid
+  recipientId     String    @db.Uuid
+  senderId        String    @db.Uuid
+  type            NotificationType
+  title           String    @db.VarChar(100)
+  message         String    @db.VarChar(500)
+  relatedId       String?   @db.Uuid  // Generic FK for post/project/comment
+  relatedType     String?   // "post" | "project" | "comment"
+  read            Boolean   @default(false)
+  actionUrl       String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  recipient       User      @relation("RecipientNotifications", fields: [recipientId], references: [id])
+  sender          User      @relation("SenderNotifications", fields: [senderId], references: [id])
+
+  @@index([recipientId, createdAt(sort: Desc)])
+  @@index([recipientId, read])
+}
+
+model Report {
+  id              String    @id @default(uuid()) @db.Uuid
+  reporterId      String    @db.Uuid
+  reportedPostId  String    @db.Uuid
+  reportedUserId  String    @db.Uuid
+  reason          ReportReason
+  description     String?   @db.VarChar(500)
+  status          ReportStatus @default(PENDING)
+  reviewedById    String?   @db.Uuid
+  reviewedAt      DateTime?
+  action          ReportAction?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model Activity {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  type            ActivityType
+  description     String    @db.VarChar(500)
+  metadata        Json?     @default("{}")
+  xpEarned        Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model View {
+  id              String    @id @default(uuid()) @db.Uuid
+  postId          String    @db.Uuid
+  userId          String?   @db.Uuid
+  ipAddress       String
+  userAgent       String?
+
+  createdAt       DateTime  @default(now())
+
+  post            Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId, ipAddress])
+  @@index([postId])
+}
+
+model Feedback {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  type            FeedbackType
+  subject         String    @db.VarChar(200)
+  description     String    @db.Text
+  rating          Int?
+  status          FeedbackStatus @default(OPEN)
+  commentsCount   Int       @default(0)
+  solvedById      String?   @db.Uuid
+  solvedAt        DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  comments        FeedbackComment[]
+}
+
+model FeedbackComment {
+  id              String    @id @default(uuid()) @db.Uuid
+  feedbackId      String    @db.Uuid
+  userId          String    @db.Uuid
+  content         String    @db.VarChar(1000)
+  isAdminComment  Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  feedback        Feedback  @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+}
+
+model BotAccount {
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  isActive        Boolean   @default(true)
+  personality     BotPersonality @default(FRIENDLY)
+  commentFrequency Int      @default(5)
+  lastActive      DateTime  @default(now())
+  totalComments   Int       @default(0)
+  totalReplies    Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  activities      BotActivity[]
+}
+
+model BotActivity {
+  id              String    @id @default(uuid()) @db.Uuid
+  botAccountId    String    @db.Uuid
+  postId          String    @db.Uuid
+  commentId       String?   @db.Uuid
+  action          BotAction
+  content         String    @db.Text
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  botAccount      BotAccount @relation(fields: [botAccountId], references: [id])
+
+  @@index([botAccountId, postId])
+}
+
+model AiLog {
+  id              String    @id @default(uuid()) @db.Uuid
+  service         AiService // MISTRAL, GEMINI
+  aiModel         String
+  taskType        String
+  inputLength     Int
+  outputSummary   String    @db.VarChar(500)
+  userId          String?   @db.Uuid
+  success         Boolean   @default(true)
+  errorMessage    String?
+  executionTime   Int       // ms
+  createdAt       DateTime  @default(now())
+
+  @@index([service, taskType])
+  @@index([userId])
+  @@index([createdAt(sort: Desc)])
+}
+
+model AuditLog {
+  id              String    @id @default(uuid()) @db.Uuid
+  adminId         String    @db.Uuid
+  action          String    // e.g., "USER_BAN", "POST_DELETE"
+  targetType      String    // "USER", "POST", "PROJECT"
+  targetId        String    @db.Uuid
+  reason          String?   @db.VarChar(500)
+  metadata        Json?
+
+  createdAt       DateTime  @default(now())
+
+  // Relations (Optional back-references if needed)
+  post            Post?     @relation("PostAudit", fields: [targetId], references: [id], onDelete: SetNull, map: "AuditLog_Post_fkey")
+  project         Project?  @relation("ProjectAudit", fields: [targetId], references: [id], onDelete: SetNull, map: "AuditLog_Project_fkey")
+
+  @@index([adminId])
+  @@index([targetId])
+}
+
+// Enums
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+  ANALYTICS
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum UserType {
+  STUDENT
+  DEVELOPER
+  DESIGNER
+  ENTREPRENEUR
+  OTHER
+}
+
+enum ExperienceLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum RegistrationSource {
+  ORGANIC
+  REFERRAL
+  SOCIAL
+  DIRECT
+  EMAIL
+  SEARCH
+}
+
+enum PostStatus {
+  PENDING_REVIEW
+  ACTIVE
+  ARCHIVED
+  BLOCKED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum LikeTargetType {
+  POST
+  COMMENT
+}
+
+enum BlockReason {
+  SPAM
+  HARASSMENT
+  INAPPROPRIATE
+  OTHER
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+}
+
+enum CommunityCategory {
+  FRONTEND
+  BACKEND
+  MOBILE
+  DEVOPS
+  DATA
+  AI
+  BLOCKCHAIN
+  GENERAL
+}
+
+enum CommunityMemberRole {
+  MEMBER
+  MODERATOR
+  CREATOR
+}
+
+enum XpEventType {
+  DAILY_LOGIN
+  POST_CREATION
+  COMMENT_CREATION
+  LIKE_GIVEN
+  LIKE_RECEIVED
+  FIRST_POST
+  FIRST_COMMENT
+  POLL_INTERACTION
+  BADGE_EARNED
+  LEVEL_UP
+  MODERATOR_ACTION_BONUS
+  REFERRAL_SUCCESS
+  REFERRAL_BONUS
+  EMAIL_VERIFIED
+  USER_FOLLOWED
+  CHALLENGE_COMPLETION
+  DAILY_CHALLENGE
+  QUALITY_CONTENT
+  ADMIN_ADJUSTMENT
+}
+
+enum SnapshotType {
+  ALL_TIME
+  WEEKLY
+  MONTHLY
+}
+
+enum ReferralStatus {
+  PENDING
+  COMPLETED
+  EXPIRED
+}
+
+enum MissionType {
+  SOCIAL
+  CONTENT
+  ENGAGEMENT
+  LEARNING
+  ACHIEVEMENT
+}
+
+enum MissionDuration {
+  DAILY
+  WEEKLY
+  MONTHLY
+  PERMANENT
+}
+
+enum Difficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum ProgressStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  FAILED
+}
+
+enum ChallengeType {
+  POST_CREATION
+  ENGAGEMENT
+  COMMUNITY
+  LEARNING
+  CREATIVE
+}
+
+enum ChallengeDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+}
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum KnowledgeCategory {
+  TUTORIAL
+  CODE_SNIPPET
+  BEST_PRACTICE
+  TROUBLESHOOTING
+  CONFIGURATION
+  API_REFERENCE
+  COMMAND_REFERENCE
+  QUICK_TIP
+}
+
+enum NotificationType {
+  LIKE
+  COMMENT
+  FOLLOW
+  PROJECT_LIKE
+  MENTION
+  SYSTEM
+  XP_OVERTAKE
+  XP_OVERTAKEN
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  INAPPROPRIATE
+  MISINFORMATION
+  COPYRIGHT
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+enum ReportAction {
+  NONE
+  WARNING
+  POST_REMOVED
+  USER_SUSPENDED
+  USER_BANNED
+}
+
+enum ActivityType {
+  POST_CREATED
+  COMMENT_CREATED
+  LIKE_GIVEN
+  USER_FOLLOWED
+  BADGE_EARNED
+  LEVEL_UP
+  QUALITY_BONUS
+}
+
+enum FeedbackType {
+  BUG
+  FEATURE
+  GENERAL
+  IMPROVEMENT
+}
+
+enum FeedbackStatus {
+  OPEN
+  IN_PROGRESS
+  SOLVED
+}
+
+enum AiService {
+  MISTRAL
+  GEMINI
+}
+
+enum BotPersonality {
+  FRIENDLY
+  TECHNICAL
+  CASUAL
+  PROFESSIONAL
+}
+
+enum BotAction {
+  COMMENT
+  REPLY
+}
