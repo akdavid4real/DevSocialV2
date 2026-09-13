@@ -88,8 +88,8 @@ api.interceptors.response.use(
           const session = refreshResponse.data?.data?.session
           if (session?.access_token && session?.refresh_token) {
             await tokenCache.setSession(session.access_token, session.refresh_token)
-            originalRequest.headers = originalRequest.headers || {}
-            originalRequest.headers.Authorization = `Bearer ${session.access_token}`
+            originalRequest.headers = originalRequest.headers ?? ({} as any)
+            ;(originalRequest.headers as any).Authorization = `Bearer ${session.access_token}`
             return api.request(originalRequest)
           }
         } catch {
