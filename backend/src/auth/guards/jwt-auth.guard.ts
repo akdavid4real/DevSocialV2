@@ -49,21 +49,22 @@ export class JwtAuthGuard implements CanActivate {
 
     const payload = decodeJwtPayload(token);
     const sessionId = typeof payload.session_id === 'string' ? payload.session_id : null;
+    if (!sessionId) {
+      throw new UnauthorizedException('Access token is not bound to a Supabase session');
+    }
 
     // Supabase access tokens remain cryptographically valid until their exp time,
     // even after sign-out. Checking auth.sessions makes revocation immediate.
-    if (sessionId) {
-      const activeSessions = await this.prisma.$queryRaw<Array<{ id: string }>>`
-        SELECT id::text
-        FROM auth.sessions
-        WHERE id = ${sessionId}::uuid
-          AND user_id = ${data.user.id}::uuid
-        LIMIT 1
-      `;
+    const activeSessions = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id::text
+      FROM auth.sessions
+      WHERE id = ${sessionId}::uuid
+        AND user_id = ${data.user.id}::uuid
+      LIMIT 1
+    `;
 
-      if (activeSessions.length === 0) {
-        throw new UnauthorizedException('Session has been revoked');
-      }
+    if (activeSessions.length === 0) {
+      throw new UnauthorizedException('Session has been revoked');
     }
 
     const user = await this.prisma.user.findUnique({
