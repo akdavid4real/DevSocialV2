@@ -23,6 +23,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 
 const REFRESH_COOKIE = 'devsocial_refresh';
+const MOBILE_CLIENT_HEADER = 'x-client-platform';
 
 function parseCookies(header?: string): Record<string, string> {
   if (!header) return {};
@@ -39,6 +40,10 @@ function parseCookies(header?: string): Record<string, string> {
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  private isMobileClient(req: any) {
+    return String(req.headers?.[MOBILE_CLIENT_HEADER] || '').toLowerCase() === 'mobile';
+  }
 
   private cookieOptions() {
     const configured = (process.env.AUTH_COOKIE_SAME_SITE || 'lax').toLowerCase();
@@ -64,6 +69,17 @@ export class AuthController {
     res.clearCookie(REFRESH_COOKIE, options);
   }
 
+  private toPublicSession(result: Awaited<ReturnType<AuthService['login']>>, includeRefreshToken: boolean) {
+    return {
+      user: result.user,
+      session: {
+        access_token: result.session.access_token,
+        expires_at: result.session.expires_at,
+        ...(includeRefreshToken ? { refresh_token: result.session.refresh_token } : {}),
+      },
+    };
+  }
+
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
@@ -71,35 +87,33 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() loginDto: LoginDto,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const result = await this.authService.login(loginDto);
-    this.setRefreshCookie(res, result.session.refresh_token);
-
-    return {
-      user: result.user,
-      session: {
-        access_token: result.session.access_token,
-        expires_at: result.session.expires_at,
-      },
-    };
+    const mobile = this.isMobileClient(req);
+    if (!mobile) this.setRefreshCookie(res, result.session.refresh_token);
+    return this.toPublicSession(result, mobile);
   }
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refresh(@Req() req: any, @Res({ passthrough: true }) res: Response) {
-    const refreshToken = parseCookies(req.headers?.cookie)[REFRESH_COOKIE];
+  async refresh(
+    @Body('refreshToken') bodyRefreshToken: string | undefined,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const mobile = this.isMobileClient(req);
+    const cookieRefreshToken = parseCookies(req.headers?.cookie)[REFRESH_COOKIE];
+    const refreshToken = mobile ? bodyRefreshToken : cookieRefreshToken;
+
     if (!refreshToken) throw new UnauthorizedException('No refresh session');
 
     const result = await this.authService.refreshSession(refreshToken);
-    this.setRefreshCookie(res, result.session.refresh_token);
-
-    return {
-      user: result.user,
-      session: {
-        access_token: result.session.access_token,
-        expires_at: result.session.expires_at,
-      },
-    };
+    if (!mobile) this.setRefreshCookie(res, result.session.refresh_token);
+    return this.toPublicSession(result, mobile);
   }
 
   @Post('verify')
