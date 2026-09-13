@@ -65,8 +65,8 @@ export class AuthService {
     const authUserId = authData.user.id;
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
+      const user = await this.prisma.$transaction(async (tx) => {
+        const createdUser = await tx.user.create({
           data: {
             supabaseAuthId: authUserId,
             email,
@@ -80,9 +80,21 @@ export class AuthService {
           },
         });
 
-        await tx.userStats.create({ data: { userId: user.id } });
-        return user;
+        await tx.userStats.create({ data: { userId: createdUser.id } });
+        return createdUser;
       });
+
+      if (dto.referralCode) {
+        try {
+          await this.referralsService.createCompletedReferral(dto.referralCode, user.id);
+        } catch (referralError: any) {
+          this.logger.error(
+            `Signup completed but referral credit failed for user ${user.id}: ${referralError?.message || referralError}`,
+          );
+        }
+      }
+
+      return user;
     } catch (dbError: any) {
       await this.supabase.client.auth.admin.deleteUser(authUserId);
       if (dbError?.code === 'P2002') {
