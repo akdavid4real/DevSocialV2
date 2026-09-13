@@ -32,29 +32,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const loadUser = useCallback(async () => {
-    console.log('[Auth] Loading user...')
     try {
       const token = await tokenCache.get()
       if (!token) {
-        console.log('[Auth] No token found, user is guest')
         setUser(null)
-        setLoading(false)
         return
       }
 
-      console.log('[Auth] Token found, fetching user...')
       const response = await api.getMe()
       const result = unwrap(response)
-      // getMe returns { data: user } wrapped by TransformInterceptor, so unwrap twice
       const userData = unwrap(result)
-      console.log('[Auth] User loaded:', userData?.username)
       setUser(userData)
-    } catch (error) {
-      console.log('[Auth] Load failed, clearing token:', error)
+    } catch {
       await tokenCache.clear()
       setUser(null)
     } finally {
-      console.log('[Auth] Loading complete')
       setLoading(false)
     }
   }, [])
@@ -64,42 +56,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loadUser])
 
   const login = async (credentials: { usernameOrEmail: string; password: string }) => {
-    console.log('[Auth] Logging in:', credentials.usernameOrEmail)
     const response = await api.login(credentials)
     const data = unwrap(response)
+    const accessToken = data.session?.access_token
+    const refreshToken = data.session?.refresh_token
 
-    await tokenCache.set(data.session.access_token)
-    console.log('[Auth] Login success, user:', data.user?.username)
+    if (!accessToken || !refreshToken) {
+      throw new Error('The server did not return a complete mobile session')
+    }
+
+    await tokenCache.setSession(accessToken, refreshToken)
     setUser(data.user)
-
     Toast.show({ type: 'success', text1: 'Welcome back!' })
   }
 
   const signup = async (userData: any) => {
-    console.log('[Auth] Signing up:', userData.username)
     const response = await api.register(userData)
-    console.log('[Auth] Signup success')
     Toast.show({ type: 'success', text1: 'Registration successful!' })
     return response
   }
 
   const verifyOtp = async (email: string, token: string) => {
-    const response = await api.verifyOtp({ email, token })
-    const data = unwrap(response)
-
-    if (data.session?.access_token) {
-      await tokenCache.set(data.session.access_token)
-    }
-
-    await loadUser()
-    Toast.show({ type: 'success', text1: 'Email verified!' })
+    await api.verifyOtp({ email, token })
+    Toast.show({ type: 'success', text1: 'Email verified! Please log in.' })
   }
 
   const logout = async () => {
-    console.log('[Auth] Logging out')
-    await tokenCache.clear()
-    setUser(null)
-    Toast.show({ type: 'success', text1: 'Logged out successfully' })
+    try {
+      await api.logoutSession()
+    } catch {
+      // Local credentials still need to be cleared if the network is unavailable.
+    } finally {
+      await tokenCache.clear()
+      setUser(null)
+      Toast.show({ type: 'success', text1: 'Logged out successfully' })
+    }
   }
 
   const refreshUser = async () => {
