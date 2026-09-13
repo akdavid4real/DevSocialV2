@@ -17,5 +17,6 @@ backend/backups/
 
 # Tooling and operating-system files
 .vercel/
+.claude/
 .DS_Store
 *.log
