@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useCallback } from 'react'
 import {
   View,
   Text,
@@ -8,19 +8,16 @@ import {
   Pressable,
 } from 'react-native'
 import { useRouter } from 'expo-router'
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { MessageSquare, Bell } from 'lucide-react-native'
+import { MessageSquare } from 'lucide-react-native'
 import * as api from '@/lib/api'
-import { unwrap } from '@/lib/utils'
-import { useAuth } from '@/contexts/AuthContext'
 import { PostCard } from '@/components/home/PostCard'
 import { Skeleton } from '@/components/ui/Skeleton'
 import type { Post } from '@/lib/types'
 
 export default function HomeScreen() {
   const router = useRouter()
-  const { user } = useAuth()
   const queryClient = useQueryClient()
 
   const {
@@ -33,21 +30,13 @@ export default function HomeScreen() {
     isRefetching,
   } = useInfiniteQuery({
     queryKey: ['posts'],
-    queryFn: async ({ pageParam = 1 }) => {
-      const response = await api.getPosts(pageParam)
-      return unwrap(response)
-    },
-    getNextPageParam: (lastPage: any) => {
-      if (lastPage?.pagination) {
-        const { page, totalPages } = lastPage.pagination
-        return page < totalPages ? page + 1 : undefined
-      }
-      return undefined
-    },
+    queryFn: ({ pageParam }) => api.getPosts(pageParam, 10),
+    getNextPageParam: (lastPage) =>
+      lastPage.page < lastPage.lastPage ? lastPage.page + 1 : undefined,
     initialPageParam: 1,
   })
 
-  const posts = data?.pages?.flatMap((page: any) => page?.posts || page || []) || []
+  const posts = data?.pages.flatMap((page) => page.posts) || []
 
   const likeMutation = useMutation({
     mutationFn: (postId: string) => api.likePost(postId),
@@ -57,24 +46,22 @@ export default function HomeScreen() {
         if (!old?.pages) return old
         return {
           ...old,
-          pages: old.pages.map((page: any) => {
-            const posts = page?.posts || page || []
-            return {
-              ...page,
-              posts: posts.map((post: Post) =>
-                post.id === postId
-                  ? {
-                      ...post,
-                      isLiked: !post.isLiked,
-                      likesCount: post.isLiked ? post.likesCount - 1 : post.likesCount + 1,
-                    }
-                  : post
-              ),
-            }
-          }),
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            posts: (page.posts || []).map((post: Post) =>
+              post.id === postId
+                ? {
+                    ...post,
+                    isLiked: !post.isLiked,
+                    likesCount: Math.max(0, post.likesCount + (post.isLiked ? -1 : 1)),
+                  }
+                : post,
+            ),
+          })),
         }
       })
     },
+    onError: () => queryClient.invalidateQueries({ queryKey: ['posts'] }),
   })
 
   const renderPost = useCallback(
@@ -86,19 +73,8 @@ export default function HomeScreen() {
         onAuthorPress={() => router.push(`/(stack)/user/${item.author.username}`)}
       />
     ),
-    [likeMutation]
+    [likeMutation, router],
   )
-
-  const renderFooter = () => {
-    if (isFetchingNextPage) {
-      return (
-        <View className="py-4">
-          <ActivityIndicator color="#6366f1" />
-        </View>
-      )
-    }
-    return null
-  }
 
   if (isLoading) {
     return (
@@ -114,10 +90,6 @@ export default function HomeScreen() {
                 </View>
               </View>
               <Skeleton className="w-full h-16" />
-              <View className="flex-row gap-4">
-                <Skeleton className="w-16 h-4" />
-                <Skeleton className="w-16 h-4" />
-              </View>
             </View>
           ))}
         </View>
@@ -127,14 +99,11 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      {/* Header */}
       <View className="flex-row items-center justify-between px-4 py-3 border-b border-border">
         <Text className="text-2xl font-bold text-text-primary">DevSocial</Text>
-        <View className="flex-row gap-3">
-          <Pressable onPress={() => router.push('/(stack)/messages')}>
-            <MessageSquare size={24} color="#A1A1AA" />
-          </Pressable>
-        </View>
+        <Pressable onPress={() => router.push('/(stack)/messages')}>
+          <MessageSquare size={24} color="#A1A1AA" />
+        </Pressable>
       </View>
 
       <FlatList
@@ -142,9 +111,15 @@ export default function HomeScreen() {
         renderItem={renderPost}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16, gap: 16 }}
-        onEndReached={() => hasNextPage && fetchNextPage()}
+        onEndReached={() => {
+          if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
+        }}
         onEndReachedThreshold={0.5}
-        ListFooterComponent={renderFooter}
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <View className="py-4"><ActivityIndicator color="#6366f1" /></View>
+          ) : null
+        }
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -156,9 +131,7 @@ export default function HomeScreen() {
         ListEmptyComponent={
           <View className="items-center justify-center py-20">
             <Text className="text-text-secondary text-lg">No posts yet</Text>
-            <Text className="text-text-muted text-sm mt-1">
-              Follow people to see their posts here
-            </Text>
+            <Text className="text-text-muted text-sm mt-1">Follow people to see their posts here</Text>
           </View>
         }
       />
