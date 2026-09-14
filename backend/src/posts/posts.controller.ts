@@ -133,7 +133,7 @@ export class PostsController {
 
         const ipAddress = req?.ip || req?.connection?.remoteAddress || 'unknown';
         const userAgent = req?.headers?.['user-agent'];
-        await this.postsService.trackView(id, userId, ipAddress, userAgent);
+        await this.visibility.trackUniqueView(id, userId, ipAddress, userAgent);
 
         return this.postsService.findOne(id);
     }
