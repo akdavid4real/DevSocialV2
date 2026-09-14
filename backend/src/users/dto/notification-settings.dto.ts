@@ -1,4 +1,5 @@
-import { IsBoolean, IsEnum } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsEnum, ValidateNested } from 'class-validator';
 
 export enum EmailDigestFrequency {
   INSTANT = 'INSTANT',
@@ -47,5 +48,7 @@ export class NotificationSettingsDto {
 }
 
 export class UpdateNotificationSettingsDto {
+  @ValidateNested()
+  @Type(() => NotificationSettingsDto)
   notificationSettings: NotificationSettingsDto;
 }
