@@ -178,14 +178,12 @@ api.interceptors.response.use(
 export default api
 
 // Auth
-export const login = (data: { usernameOrEmail: string; password: string }) =>
-  api.post<any, any>('/auth/login', data)
+export const login = (data: { usernameOrEmail: string; password: string }) => api.post<any, any>('/auth/login', data)
 export const register = (data: any) => api.post<any, any>('/auth/register', data)
 export const verifyOtp = (data: { email: string; token: string }) => api.post<any, any>('/auth/verify', data)
 export const getMe = () => api.get<any, User>('/auth/me')
 export const logoutSession = () => api.post<any, any>('/auth/logout')
-export const changePassword = (data: { currentPassword: string; newPassword: string }) =>
-  api.post<any, any>('/auth/change-password', data)
+export const changePassword = (data: { currentPassword: string; newPassword: string }) => api.post<any, any>('/auth/change-password', data)
 export const deleteAccount = () => api.delete<any, any>('/auth/delete-account')
 
 // Users
@@ -212,8 +210,7 @@ export const getUserCommentedPosts = async (username: string): Promise<Post[]> =
   const result = await api.get<any, any>(`/users/${encodeURIComponent(username)}/commented-posts`)
   return Array.isArray(result) ? result : []
 }
-export const getUserActivities = (username: string, page = 1) =>
-  api.get<any, any>(`/users/${encodeURIComponent(username)}/activities`, { params: { page, limit: 20 } })
+export const getUserActivities = (username: string, page = 1) => api.get<any, any>(`/users/${encodeURIComponent(username)}/activities`, { params: { page, limit: 20 } })
 export const getUserStats = (username: string) => api.get<any, any>(`/users/${encodeURIComponent(username)}/stats`)
 export const getUserHeatmap = (username: string) => api.get<any, any>(`/users/${encodeURIComponent(username)}/activity-heatmap`)
 export const getPinnedPosts = async (username: string): Promise<Post[]> => {
@@ -326,10 +323,12 @@ export const getConversations = async (): Promise<Conversation[]> => {
   return Array.isArray(result) ? result : []
 }
 export const getMessages = async (conversationId: string, before?: string, limit = 50): Promise<MessagePage> => {
-  const result = await api.get<any, any>(`/messages/${conversationId}`, { params: { before, limit } })
+  const safeLimit = Math.min(Math.max(limit, 1), 100)
+  const result = await api.get<any, any>(`/messages/${conversationId}`, { params: { before, limit: safeLimit } })
+  const messages: Message[] = Array.isArray(result) ? result : Array.isArray(result?.messages) ? result.messages : []
   return {
-    messages: result?.messages || [],
-    nextCursor: result?.nextCursor || null,
+    messages,
+    nextCursor: messages.length === safeLimit ? messages[0]?.id || null : null,
   }
 }
 export const sendMessage = (data: { receiverId: string; content: string }) => api.post<any, Message>('/messages', data)
