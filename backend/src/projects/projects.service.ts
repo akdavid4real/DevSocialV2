@@ -143,9 +143,11 @@ export class ProjectsService {
     }
 
     async findOne(id: string) {
-        const project = await this.prisma.project.update({
+        // View counts are intentionally not incremented on reads. The old
+        // implementation counted every refresh/bot request and produced an
+        // untrustworthy metric. Re-enable only with durable deduplication.
+        const project = await this.prisma.project.findUnique({
             where: { id },
-            data: { views: { increment: 1 } },
             include: {
                 author: {
                     select: {
@@ -157,7 +159,7 @@ export class ProjectsService {
                     },
                 },
             },
-        }).catch(() => null);
+        });
 
         if (!project || project.visibility !== 'PUBLIC') {
             throw new NotFoundException('Project not found');
@@ -172,10 +174,7 @@ export class ProjectsService {
             select: { authorId: true },
         });
 
-        if (!project) {
-            throw new NotFoundException('Project not found');
-        }
-
+        if (!project) throw new NotFoundException('Project not found');
         if (project.authorId !== userId) {
             throw new ForbiddenException('Only the project owner can update status');
         }
@@ -192,10 +191,7 @@ export class ProjectsService {
             select: { authorId: true },
         });
 
-        if (!project) {
-            throw new NotFoundException('Project not found');
-        }
-
+        if (!project) throw new NotFoundException('Project not found');
         if (project.authorId !== userId) {
             throw new ForbiddenException('Only the project owner can delete this project');
         }
