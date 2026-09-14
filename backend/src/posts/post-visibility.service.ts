@@ -64,6 +64,44 @@ export class PostVisibilityService {
     return this.assertPostVisible(comment.postId, viewerId);
   }
 
+  async trackUniqueView(
+    postId: string,
+    userId?: string,
+    ipAddress: string = 'unknown',
+    userAgent?: string,
+  ) {
+    const identity = userId ? `user:${userId}` : `ip:${ipAddress}`;
+    const lockKey = `post-view:${postId}:${identity}`;
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+
+      const existing = await tx.view.findFirst({
+        where: userId
+          ? { postId, userId }
+          : { postId, userId: null, ipAddress },
+        select: { id: true },
+      });
+
+      if (existing) return false;
+
+      await tx.view.create({
+        data: {
+          postId,
+          userId,
+          ipAddress,
+          userAgent,
+        },
+      });
+      await tx.post.update({
+        where: { id: postId },
+        data: { viewsCount: { increment: 1 } },
+      });
+
+      return true;
+    });
+  }
+
   async filterPosts<T extends { id: string }>(posts: T[], viewerId?: string): Promise<T[]> {
     if (posts.length === 0) return [];
 
