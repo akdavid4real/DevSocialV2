@@ -1,7 +1,10 @@
 import { Platform } from 'react-native'
 import Constants from 'expo-constants'
 import * as Notifications from 'expo-notifications'
+import * as SecureStore from 'expo-secure-store'
 import * as api from './api'
+
+const MOBILE_PUSH_TOKEN_KEY = 'devsocial_mobile_push_token'
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -41,15 +44,18 @@ export async function registerForMobilePush(): Promise<string | null> {
   if (!token) return null
 
   await api.registerMobilePushToken(token)
+  await SecureStore.setItemAsync(MOBILE_PUSH_TOKEN_KEY, token)
   return token
 }
 
-export async function unregisterMobilePush(token: string | null | undefined) {
+export async function unregisterStoredMobilePush() {
+  const token = await SecureStore.getItemAsync(MOBILE_PUSH_TOKEN_KEY)
   if (!token) return
+
   try {
     await api.removeMobilePushToken(token)
-  } catch {
-    // A local logout must not fail because token cleanup is unavailable.
+  } finally {
+    await SecureStore.deleteItemAsync(MOBILE_PUSH_TOKEN_KEY)
   }
 }
 
@@ -66,11 +72,7 @@ export function notificationUrl(response: Notifications.NotificationResponse): s
     const username = url.slice(2)
     return username ? `/(stack)/user/${username}` : null
   }
-  if (url === '/messages' || url.startsWith('/messages/')) {
-    return '/(stack)/messages'
-  }
-  if (url === '/notifications') {
-    return '/(tabs)/notifications'
-  }
+  if (url === '/messages' || url.startsWith('/messages/')) return '/(stack)/messages'
+  if (url === '/notifications') return '/(tabs)/notifications'
   return null
 }
