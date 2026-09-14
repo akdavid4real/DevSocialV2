@@ -6,6 +6,7 @@ import { NotificationType } from '../generated/prisma';
 import { SocialUtilsService } from '../common/social-utils.service';
 import { SavePushSubscriptionDto } from './dto/push-subscription.dto';
 import { MobilePushService } from './mobile-push.service';
+import { EmailDeliveryService } from './email-delivery.service';
 
 type PushPreferenceKey =
     | 'pushOnNewFollower'
@@ -13,6 +14,21 @@ type PushPreferenceKey =
     | 'pushOnLike'
     | 'pushOnComment'
     | 'pushOnMessage';
+
+type EmailPreferenceKey =
+    | 'emailOnNewFollower'
+    | 'emailOnMention'
+    | 'emailOnLike'
+    | 'emailOnComment'
+    | 'emailOnMessage';
+
+const EMAIL_PREF_BY_PUSH: Partial<Record<PushPreferenceKey, EmailPreferenceKey>> = {
+    pushOnNewFollower: 'emailOnNewFollower',
+    pushOnMention: 'emailOnMention',
+    pushOnLike: 'emailOnLike',
+    pushOnComment: 'emailOnComment',
+    pushOnMessage: 'emailOnMessage',
+};
 
 @Injectable()
 export class NotificationsService {
@@ -24,6 +40,7 @@ export class NotificationsService {
         private socialUtils: SocialUtilsService,
         private config: ConfigService,
         private mobilePush: MobilePushService,
+        private emailDelivery: EmailDeliveryService,
     ) {
         const publicKey = this.config.get<string>('VAPID_PUBLIC_KEY');
         const privateKey = this.config.get<string>('VAPID_PRIVATE_KEY');
@@ -76,6 +93,7 @@ export class NotificationsService {
         relatedType?: string;
         actionUrl?: string;
         pushPreferenceKey?: PushPreferenceKey;
+        emailPreferenceKey?: EmailPreferenceKey;
     }) {
         try {
             if (data.recipientId === data.senderId) return null;
@@ -84,6 +102,7 @@ export class NotificationsService {
                 this.prisma.user.findUnique({
                     where: { id: data.recipientId },
                     select: {
+                        email: true,
                         notificationSettings: true,
                         privacySettings: true,
                         pushSubscription: true,
@@ -118,17 +137,31 @@ export class NotificationsService {
                 },
             });
 
-            await this.sendPushIfEnabled(
-                data.recipientId,
-                recipient.notificationSettings,
-                recipient.pushSubscription,
-                data.pushPreferenceKey,
-                {
-                    title: data.title,
-                    body: data.message,
-                    url: data.actionUrl || '/notifications',
-                },
-            );
+            await Promise.allSettled([
+                this.sendPushIfEnabled(
+                    data.recipientId,
+                    recipient.notificationSettings,
+                    recipient.pushSubscription,
+                    data.pushPreferenceKey,
+                    {
+                        title: data.title,
+                        body: data.message,
+                        url: data.actionUrl || '/notifications',
+                    },
+                ),
+                this.queueEmailIfEnabled(
+                    data.recipientId,
+                    recipient.email,
+                    notification.id,
+                    recipient.notificationSettings,
+                    data.emailPreferenceKey || (data.pushPreferenceKey ? EMAIL_PREF_BY_PUSH[data.pushPreferenceKey] : undefined),
+                    {
+                        title: data.title,
+                        body: data.message,
+                        url: data.actionUrl || '/notifications',
+                    },
+                ),
+            ]);
 
             return notification;
         } catch (error: any) {
@@ -249,6 +282,34 @@ export class NotificationsService {
         });
     }
 
+    private async queueEmailIfEnabled(
+        userId: string,
+        email: string,
+        notificationId: string,
+        rawSettings: unknown,
+        preferenceKey: EmailPreferenceKey | undefined,
+        payload: { title: string; body: string; url: string },
+    ) {
+        if (!preferenceKey) return;
+        const settings = this.normalizeObject(rawSettings);
+        if (settings[preferenceKey] === false) return;
+        const frequency = typeof settings.emailDigestFrequency === 'string'
+            ? settings.emailDigestFrequency.toUpperCase()
+            : 'INSTANT';
+        if (frequency === 'NEVER') return;
+
+        await this.emailDelivery.queue({
+            recipientId: userId,
+            notificationId,
+            email,
+            eventKey: preferenceKey,
+            subject: payload.title,
+            body: payload.body,
+            actionUrl: payload.url,
+            frequency,
+        });
+    }
+
     private async sendPushIfEnabled(
         userId: string,
         rawSettings: unknown,
@@ -262,7 +323,6 @@ export class NotificationsService {
         if (settings[preferenceKey] === false) return;
 
         const store = this.mobilePush.normalize(rawSubscription);
-
         await this.mobilePush.sendExpo(userId, rawSubscription, payload);
 
         if (!this.webPushConfigured || !store.web) return;
