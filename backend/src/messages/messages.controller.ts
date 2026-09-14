@@ -5,6 +5,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   UseGuards,
   Req,
   Delete,
@@ -20,57 +21,46 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 export class MessagesController {
   constructor(private readonly messagesService: MessagesService) {}
 
-  /**
-   * Send a message to another user
-   */
   @Post()
   sendMessage(@Req() req: any, @Body() dto: SendMessageDto) {
     return this.messagesService.sendMessage(req.user.id, dto);
   }
 
-  /**
-   * Create or get a conversation with another user
-   */
   @Post('conversations')
   createConversation(@Req() req: any, @Body() dto: CreateConversationDto) {
     return this.messagesService.getOrCreateConversation(req.user.id, dto.participantId);
   }
 
-  /**
-   * Get all conversations for the current user
-   */
   @Get('conversations')
   getConversations(@Req() req: any) {
     return this.messagesService.getConversations(req.user.id);
   }
 
-  /**
-   * Get total unread message count
-   */
   @Get('unread-count')
   getUnreadCount(@Req() req: any) {
     return this.messagesService.getUnreadCount(req.user.id);
   }
 
-  /**
-   * Get messages for a specific conversation
-   */
   @Get(':conversationId')
-  getMessages(@Req() req: any, @Param('conversationId') conversationId: string) {
-    return this.messagesService.getMessages(conversationId, req.user.id);
+  getMessages(
+    @Req() req: any,
+    @Param('conversationId') conversationId: string,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+  ) {
+    return this.messagesService.getMessages(
+      conversationId,
+      req.user.id,
+      limit ? parseInt(limit) : 50,
+      before,
+    );
   }
 
-  /**
-   * Mark all messages in a conversation as read
-   */
   @Patch(':conversationId/read')
   markAsRead(@Req() req: any, @Param('conversationId') conversationId: string) {
     return this.messagesService.markAsRead(conversationId, req.user.id);
   }
 
-  /**
-   * Add or replace the current user's reaction on a message
-   */
   @Post(':conversationId/:messageId/reactions')
   addReaction(
     @Req() req: any,
@@ -81,9 +71,6 @@ export class MessagesController {
     return this.messagesService.addReaction(conversationId, messageId, req.user.id, dto.emoji);
   }
 
-  /**
-   * Remove the current user's reaction from a message
-   */
   @Delete(':conversationId/:messageId/reactions')
   removeReaction(
     @Req() req: any,
