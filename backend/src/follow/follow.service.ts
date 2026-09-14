@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -10,44 +10,38 @@ export class FollowService {
     ) {}
 
     async followUser(followerId: string, followingId: string) {
-        console.log(`[FollowService] followUser called - followerId: ${followerId}, followingId: ${followingId}`);
-        
         if (followerId === followingId) {
-            console.log(`[FollowService] Error: User trying to follow themselves`);
             throw new BadRequestException('Cannot follow yourself');
         }
 
-        const targetUser = await this.prisma.user.findUnique({
-            where: { id: followingId },
-            select: { id: true, username: true, displayName: true },
-        });
+        const [targetUser, block] = await Promise.all([
+            this.prisma.user.findUnique({
+                where: { id: followingId },
+                select: { id: true, username: true, displayName: true },
+            }),
+            this.prisma.block.findFirst({
+                where: {
+                    OR: [
+                        { blockerId: followerId, blockedId: followingId },
+                        { blockerId: followingId, blockedId: followerId },
+                    ],
+                },
+                select: { id: true },
+            }),
+        ]);
 
-        if (!targetUser) {
-            console.log(`[FollowService] Error: Target user not found`);
-            throw new NotFoundException('User not found');
-        }
+        if (!targetUser) throw new NotFoundException('User not found');
+        if (block) throw new ForbiddenException('Following is not available between these users');
 
         const existingFollow = await this.prisma.follow.findUnique({
             where: {
-                followerId_followingId: {
-                    followerId,
-                    followingId,
-                },
+                followerId_followingId: { followerId, followingId },
             },
         });
-
-        if (existingFollow) {
-            console.log(`[FollowService] Error: Already following this user`);
-            throw new BadRequestException('Already following this user');
-        }
+        if (existingFollow) throw new BadRequestException('Already following this user');
 
         await this.prisma.$transaction([
-            this.prisma.follow.create({
-                data: {
-                    followerId,
-                    followingId,
-                },
-            }),
+            this.prisma.follow.create({ data: { followerId, followingId } }),
             this.prisma.user.update({
                 where: { id: followerId },
                 data: { followingCount: { increment: 1 } },
@@ -62,25 +56,20 @@ export class FollowService {
             where: { id: followerId },
             select: { username: true, displayName: true },
         });
-
         const followerName = follower?.displayName || follower?.username || 'Someone';
 
-        await this.notifications.notifyFollow(
-            followingId,
-            followerId,
-            followerName,
-        );
-
-        // Create Activity record
-        await this.prisma.activity.create({
-            data: {
-                userId: followerId,
-                type: 'USER_FOLLOWED',
-                description: `Followed @${targetUser.username}`,
-                xpEarned: 0,
-                metadata: { followedUserId: followingId },
-            },
-        });
+        await Promise.allSettled([
+            this.notifications.notifyFollow(followingId, followerId, followerName),
+            this.prisma.activity.create({
+                data: {
+                    userId: followerId,
+                    type: 'USER_FOLLOWED',
+                    description: `Followed @${targetUser.username}`,
+                    xpEarned: 0,
+                    metadata: { followedUserId: followingId },
+                },
+            }),
+        ]);
 
         return { success: true, message: 'User followed successfully' };
     }
@@ -88,32 +77,21 @@ export class FollowService {
     async unfollowUser(followerId: string, followingId: string) {
         const existingFollow = await this.prisma.follow.findUnique({
             where: {
-                followerId_followingId: {
-                    followerId,
-                    followingId,
-                },
+                followerId_followingId: { followerId, followingId },
             },
         });
-
-        if (!existingFollow) {
-            throw new BadRequestException('Not following this user');
-        }
+        if (!existingFollow) throw new BadRequestException('Not following this user');
 
         await this.prisma.$transaction([
             this.prisma.follow.delete({
-                where: {
-                    followerId_followingId: {
-                        followerId,
-                        followingId,
-                    },
-                },
+                where: { followerId_followingId: { followerId, followingId } },
             }),
-            this.prisma.user.update({
-                where: { id: followerId },
+            this.prisma.user.updateMany({
+                where: { id: followerId, followingCount: { gt: 0 } },
                 data: { followingCount: { decrement: 1 } },
             }),
-            this.prisma.user.update({
-                where: { id: followingId },
+            this.prisma.user.updateMany({
+                where: { id: followingId, followersCount: { gt: 0 } },
                 data: { followersCount: { decrement: 1 } },
             }),
         ]);
@@ -122,32 +100,39 @@ export class FollowService {
     }
 
     async isFollowing(followerId: string, followingId: string) {
-        const follow = await this.prisma.follow.findUnique({
-            where: {
-                followerId_followingId: {
-                    followerId,
-                    followingId,
+        const [follow, block] = await Promise.all([
+            this.prisma.follow.findUnique({
+                where: { followerId_followingId: { followerId, followingId } },
+            }),
+            this.prisma.block.findFirst({
+                where: {
+                    OR: [
+                        { blockerId: followerId, blockedId: followingId },
+                        { blockerId: followingId, blockedId: followerId },
+                    ],
                 },
-            },
-        });
-
-        return { isFollowing: !!follow };
+                select: { id: true },
+            }),
+        ]);
+        return { isFollowing: !!follow && !block };
     }
 
     async getFollowers(userId: string, page = 1, limit = 20) {
-        const skip = (page - 1) * limit;
+        const safePage = Math.max(page || 1, 1);
+        const safeLimit = Math.min(Math.max(limit || 20, 1), 100);
+        const skip = (safePage - 1) * safeLimit;
 
         const [followers, total] = await Promise.all([
             this.prisma.follow.findMany({
                 where: { followingId: userId },
                 skip,
-                take: limit,
+                take: safeLimit,
                 orderBy: { createdAt: 'desc' },
             }),
             this.prisma.follow.count({ where: { followingId: userId } }),
         ]);
 
-        const followerIds = followers.map(f => f.followerId);
+        const followerIds = followers.map((follow) => follow.followerId);
         const users = await this.prisma.user.findMany({
             where: { id: { in: followerIds } },
             select: {
@@ -163,25 +148,27 @@ export class FollowService {
         return {
             followers: users,
             total,
-            page,
-            lastPage: Math.ceil(total / limit),
+            page: safePage,
+            lastPage: Math.ceil(total / safeLimit),
         };
     }
 
     async getFollowing(userId: string, page = 1, limit = 20) {
-        const skip = (page - 1) * limit;
+        const safePage = Math.max(page || 1, 1);
+        const safeLimit = Math.min(Math.max(limit || 20, 1), 100);
+        const skip = (safePage - 1) * safeLimit;
 
         const [following, total] = await Promise.all([
             this.prisma.follow.findMany({
                 where: { followerId: userId },
                 skip,
-                take: limit,
+                take: safeLimit,
                 orderBy: { createdAt: 'desc' },
             }),
             this.prisma.follow.count({ where: { followerId: userId } }),
         ]);
 
-        const followingIds = following.map(f => f.followingId);
+        const followingIds = following.map((follow) => follow.followingId);
         const users = await this.prisma.user.findMany({
             where: { id: { in: followingIds } },
             select: {
@@ -197,8 +184,8 @@ export class FollowService {
         return {
             following: users,
             total,
-            page,
-            lastPage: Math.ceil(total / limit),
+            page: safePage,
+            lastPage: Math.ceil(total / safeLimit),
         };
     }
 
@@ -214,16 +201,14 @@ export class FollowService {
             }),
         ]);
 
-        const currentFollowingIds = new Set(currentUserFollowing.map(f => f.followingId));
-        const targetFollowerIds = targetUserFollowers.map(f => f.followerId);
+        const currentFollowingIds = new Set(currentUserFollowing.map((follow) => follow.followingId));
+        const mutualIds = targetUserFollowers
+            .map((follow) => follow.followerId)
+            .filter((id) => currentFollowingIds.has(id));
 
-        const mutualIds = targetFollowerIds.filter(id => currentFollowingIds.has(id));
+        if (mutualIds.length === 0) return [];
 
-        if (mutualIds.length === 0) {
-            return [];
-        }
-
-        const mutualUsers = await this.prisma.user.findMany({
+        return this.prisma.user.findMany({
             where: { id: { in: mutualIds } },
             select: {
                 id: true,
@@ -234,7 +219,5 @@ export class FollowService {
             },
             take: 10,
         });
-
-        return mutualUsers;
     }
 }
