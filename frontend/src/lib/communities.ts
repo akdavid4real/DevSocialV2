@@ -28,6 +28,42 @@ export interface Community {
     memberIds: string[];
     members: Array<{ userId: string; role: "MEMBER" | "MODERATOR" | "CREATOR" }>;
     createdAt: string;
+    isJoined?: boolean;
+    canViewContent?: boolean;
+    requestId?: string | null;
+    requestStatus?: string | null;
+    inviteId?: string | null;
+    inviteStatus?: string | null;
+}
+
+export interface CommunityJoinRequest {
+    id: string;
+    status: string;
+    createdAt: string;
+    user: {
+        id: string;
+        username: string;
+        displayName?: string | null;
+        avatar?: string;
+        level?: number;
+    };
+}
+
+export interface CommunityInvite {
+    id: string;
+    status: string;
+    createdAt: string;
+    community: {
+        id: string;
+        name: string;
+        slug: string;
+        avatar?: string | null;
+    };
+    inviter: {
+        id: string;
+        username: string;
+        displayName?: string | null;
+    };
 }
 
 interface ApiResponse<T> {
@@ -73,10 +109,49 @@ export async function getCommunity(idOrSlug: string) {
 export async function toggleCommunityMembership(idOrSlug: string) {
     const response = await api.post<any, ApiResponse<{
         isJoined: boolean;
+        requested?: boolean;
+        requestId?: string | null;
+        requestStatus?: string | null;
         memberCount: number;
         community: Community;
     }>>(`/communities/${idOrSlug}/join`);
     return response.data;
+}
+
+export async function cancelCommunityJoinRequest(requestId: string) {
+    await api.delete(`/communities/join-requests/${requestId}`);
+}
+
+export async function getCommunityJoinRequests(idOrSlug: string) {
+    const response = await api.get<any, ApiResponse<{
+        requests: CommunityJoinRequest[];
+        total: number;
+        page: number;
+        lastPage: number;
+    }>>(`/communities/${idOrSlug}/join-requests`);
+    return response.data;
+}
+
+export async function reviewCommunityJoinRequest(idOrSlug: string, requestId: string, accept: boolean) {
+    await api.post(`/communities/${idOrSlug}/join-requests/${requestId}/${accept ? "accept" : "reject"}`);
+}
+
+export async function inviteUserToCommunity(idOrSlug: string, userId: string) {
+    return api.post(`/communities/${idOrSlug}/invites/${userId}`);
+}
+
+export async function getCommunityInvitations() {
+    const response = await api.get<any, ApiResponse<{
+        invites: CommunityInvite[];
+        total: number;
+        page: number;
+        lastPage: number;
+    }>>("/communities/invitations/me");
+    return response.data;
+}
+
+export async function respondToCommunityInvitation(inviteId: string, accept: boolean) {
+    return api.post(`/communities/invitations/${inviteId}/${accept ? "accept" : "reject"}`);
 }
 
 export async function getCommunityPosts(idOrSlug: string, page = 1) {
