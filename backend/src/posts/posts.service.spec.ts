@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../generated/prisma';
 import { PostsService } from './posts.service';
 
 describe('PostsService integrity guards', () => {
@@ -7,7 +7,14 @@ describe('PostsService integrity guards', () => {
     extractMentions: jest.fn().mockReturnValue([]),
     extractHashtags: jest.fn().mockReturnValue([]),
   };
-  const notifications: any = {};
+  const notifications: any = {
+    notifyCommentMention: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    socialUtils.extractMentions.mockReturnValue([]);
+  });
 
   it('rejects a reply whose parent belongs to another post', async () => {
     const prisma: any = {
@@ -19,7 +26,9 @@ describe('PostsService integrity guards', () => {
       },
       user: {
         findUnique: jest.fn().mockResolvedValue({ username: 'david', displayName: 'David' }),
+        findMany: jest.fn().mockResolvedValue([]),
       },
+      block: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn(),
     };
 
@@ -103,5 +112,44 @@ describe('PostsService integrity guards', () => {
     });
     expect(tx.user.update).toHaveBeenCalledTimes(1);
     expect(tx.xpLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not persist or notify a comment mention when the target disabled mentions', async () => {
+    socialUtils.extractMentions.mockReturnValue(['privateuser']);
+
+    const tx: any = {
+      comment: {
+        create: jest.fn().mockResolvedValue({
+          id: 'comment-1',
+          postId: 'post-1',
+          authorId: 'user-1',
+          content: '@privateuser hello',
+          author: { id: 'user-1', username: 'david', displayName: 'David', avatar: '', level: 1 },
+        }),
+      },
+      user: { update: jest.fn().mockResolvedValue({}) },
+      xpLog: { create: jest.fn().mockResolvedValue({}) },
+      activity: { create: jest.fn().mockResolvedValue({}) },
+      userMention: { create: jest.fn().mockResolvedValue({}) },
+    };
+
+    const prisma: any = {
+      post: { findUnique: jest.fn().mockResolvedValue({ authorId: 'user-1' }) },
+      comment: { findUnique: jest.fn() },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ username: 'david', displayName: 'David' }),
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'user-2', username: 'privateuser', privacySettings: { allowMentions: false } },
+        ]),
+      },
+      block: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn(async (callback: any) => callback(tx)),
+    };
+
+    const service = new PostsService(prisma, socialUtils, notifications);
+    await service.addComment('post-1', 'user-1', '@privateuser hello');
+
+    expect(tx.userMention.create).not.toHaveBeenCalled();
+    expect(notifications.notifyCommentMention).not.toHaveBeenCalled();
   });
 });
