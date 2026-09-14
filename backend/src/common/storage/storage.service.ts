@@ -27,6 +27,11 @@ type AssetRow = {
     status: 'UPLOADED' | 'ATTACHED' | 'DELETED';
 };
 
+type AssetReference = {
+    attached_to_type: string;
+    attached_to_id: string;
+};
+
 export type StoredAsset = {
     assetId: string;
     url: string;
@@ -160,11 +165,27 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
             LIMIT ${safeLimit}
         `;
 
-        if (assets.length === 0) return { removed: 0 };
+        if (assets.length === 0) return { removed: 0, reconciled: 0 };
 
         const client = this.supabaseService.client;
         let removed = 0;
+        let reconciled = 0;
+
         for (const asset of assets) {
+            const reference = await this.findAssetReference(asset.public_url);
+            if (reference) {
+                await this.prisma.$executeRaw`
+                    UPDATE public.assets
+                    SET status = 'ATTACHED',
+                        attached_to_type = ${reference.attached_to_type},
+                        attached_to_id = ${reference.attached_to_id}::uuid,
+                        attached_at = COALESCE(attached_at, now())
+                    WHERE id = ${asset.id}::uuid AND status = 'UPLOADED'
+                `;
+                reconciled += 1;
+                continue;
+            }
+
             const { error } = await client.storage.from(asset.bucket).remove([asset.object_key]);
             if (error) {
                 this.logger.warn(`Failed to remove orphan asset ${asset.id}: ${error.message}`);
@@ -178,7 +199,31 @@ export class StorageService implements OnModuleInit, OnModuleDestroy {
             removed += 1;
         }
 
-        if (removed > 0) this.logger.log(`Removed ${removed} orphaned uploads`);
-        return { removed };
+        if (removed > 0 || reconciled > 0) {
+            this.logger.log(`Asset cleanup: removed ${removed}, reconciled ${reconciled}`);
+        }
+        return { removed, reconciled };
+    }
+
+    private async findAssetReference(url: string): Promise<AssetReference | null> {
+        const rows = await this.prisma.$queryRaw<AssetReference[]>`
+            SELECT 'POST'::text AS attached_to_type, p.id AS attached_to_id
+            FROM public."Post" p
+            WHERE ${url} = ANY(p."imageUrls") OR ${url} = ANY(p."videoUrls") OR p."imageUrl" = ${url}
+            UNION ALL
+            SELECT 'COMMENT'::text, c.id
+            FROM public."Comment" c
+            WHERE ${url} = ANY(c."imageUrls") OR ${url} = ANY(c."videoUrls")
+            UNION ALL
+            SELECT 'PROJECT'::text, pr.id
+            FROM public."Project" pr
+            WHERE ${url} = ANY(pr.images)
+            UNION ALL
+            SELECT 'USER'::text, u.id
+            FROM public."User" u
+            WHERE u.avatar = ${url} OR u."bannerUrl" = ${url}
+            LIMIT 1
+        `;
+        return rows[0] || null;
     }
 }
