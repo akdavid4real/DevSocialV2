@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 const PROCESS_INTERVAL_MS = 60_000;
+const PROCESSING_LEASE_MINUTES = 10;
 const MAX_ATTEMPTS = 5;
 
 type Frequency = 'INSTANT' | 'HOURLY' | 'DAILY' | 'WEEKLY';
@@ -84,6 +85,8 @@ export class EmailDeliveryService implements OnModuleInit, OnModuleDestroy {
         if (!this.configured) return { sent: 0, configured: false };
         const safeLimit = Math.min(Math.max(limit || 100, 1), 500);
 
+        await this.recoverAbandonedClaims();
+
         const recipientRows = await this.prisma.$queryRaw<Array<{ recipient_id: string }>>`
             SELECT DISTINCT recipient_id
             FROM public.email_notification_queue
@@ -118,6 +121,18 @@ export class EmailDeliveryService implements OnModuleInit, OnModuleDestroy {
         return { sent, configured: true };
     }
 
+    private async recoverAbandonedClaims() {
+        await this.prisma.$executeRaw`
+            UPDATE public.email_notification_queue
+            SET status = 'FAILED',
+                last_error = COALESCE(last_error, 'Worker claim expired before completion'),
+                deliver_after = now()
+            WHERE status = 'PROCESSING'
+              AND deliver_after <= now()
+              AND attempts < ${MAX_ATTEMPTS}
+        `;
+    }
+
     private async claimRecipientBatch(recipientId: string): Promise<QueueRow[]> {
         return this.prisma.$transaction(async (tx) => {
             const rows = await tx.$queryRaw<QueueRow[]>`
@@ -135,7 +150,10 @@ export class EmailDeliveryService implements OnModuleInit, OnModuleDestroy {
             const ids = rows.map((row) => row.id);
             await tx.$executeRaw`
                 UPDATE public.email_notification_queue
-                SET status = 'PROCESSING', attempts = attempts + 1, last_error = NULL
+                SET status = 'PROCESSING',
+                    attempts = attempts + 1,
+                    last_error = NULL,
+                    deliver_after = now() + (${PROCESSING_LEASE_MINUTES} * interval '1 minute')
                 WHERE id = ANY(${ids}::uuid[])
             `;
             return rows;
