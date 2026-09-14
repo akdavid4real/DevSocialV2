@@ -74,6 +74,7 @@ export class ProfileAccessController {
             requestId = requestStatus === 'PENDING' ? requestRows[0].id : null;
         }
 
+        const canViewContent = !isPrivate || isFollowing || viewerId === user.id;
         return {
             id: user.id,
             username: user.username,
@@ -86,10 +87,22 @@ export class ProfileAccessController {
             followingCount: user.followingCount,
             createdAt: user.createdAt,
             isPrivate,
-            canViewContent: !isPrivate || isFollowing || viewerId === user.id,
+            canViewContent,
             isFollowing,
+            followRequested: requestStatus === 'PENDING',
             requestId,
             requestStatus,
+            // Keep the legacy profile page shape stable without disclosing protected details.
+            bio: '',
+            affiliation: '',
+            techStack: [],
+            interests: [],
+            points: 0,
+            badges: [],
+            location: '',
+            website: '',
+            githubUsername: '',
+            linkedinUrl: '',
         };
     }
 }
