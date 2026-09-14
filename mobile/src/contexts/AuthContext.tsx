@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import Toast from 'react-native-toast-message'
 import * as api from '@/lib/api'
 import { tokenCache } from '@/lib/api'
+import { unregisterStoredMobilePush } from '@/lib/push-notifications'
 import type { User } from '@/lib/types'
 
 interface AuthContextType {
@@ -85,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
+      await unregisterStoredMobilePush()
       await api.logoutSession()
     } catch {
       // Local credentials still need to be cleared if the network is unavailable.
