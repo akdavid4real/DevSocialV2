@@ -20,27 +20,14 @@ export class CommunitiesService {
         const limit = Math.min(Math.max(options.limit || 12, 1), 50);
         const skip = (page - 1) * limit;
         const category = options.category?.toUpperCase();
-        const visibility = options.viewerId
-            ? {
-                OR: [
-                    { isPrivate: false },
-                    { members: { some: { userId: options.viewerId } } },
-                ],
-            }
-            : { isPrivate: false };
 
         const where: any = {
-            ...visibility,
             ...(category ? { category } : {}),
             ...(options.search
                 ? {
-                    AND: [
-                        {
-                            OR: [
-                                { name: { contains: options.search, mode: 'insensitive' } },
-                                { description: { contains: options.search, mode: 'insensitive' } },
-                            ],
-                        },
+                    OR: [
+                        { name: { contains: options.search, mode: 'insensitive' } },
+                        { description: { contains: options.search, mode: 'insensitive' } },
                     ],
                 }
                 : {}),
@@ -111,12 +98,22 @@ export class CommunitiesService {
     }
 
     async findOne(idOrSlug: string, viewerId?: string) {
-        const community = await this.getCommunity(idOrSlug, viewerId);
+        const community = await this.getCommunity(idOrSlug, viewerId, true);
+        const isMember = Boolean(viewerId && community.members.some((member) => member.userId === viewerId));
         const accessState = viewerId
             ? await this.accessService.getRequestState(viewerId, community.id)
             : { requestId: null, requestStatus: null, inviteId: null, inviteStatus: null };
+
+        const serialized = this.serializeCommunity(community);
+        if (community.isPrivate && !isMember) {
+            serialized.members = [];
+            serialized.memberIds = [];
+        }
+
         return {
-            ...this.serializeCommunity(community),
+            ...serialized,
+            isJoined: isMember,
+            canViewContent: !community.isPrivate || isMember,
             ...accessState,
         };
     }
@@ -139,7 +136,11 @@ export class CommunitiesService {
             return {
                 ...request,
                 memberCount: community.memberCount,
-                community: this.serializeCommunity(community),
+                community: {
+                    ...this.serializeCommunity(community),
+                    members: [],
+                    memberIds: [],
+                },
             };
         }
 
