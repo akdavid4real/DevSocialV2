@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
+import { SecurityEventsService, SecurityEventType } from './security-events.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { VerifyDto } from './dto/verify.dto';
@@ -39,7 +40,10 @@ function parseCookies(header?: string): Record<string, string> {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly securityEvents: SecurityEventsService,
+  ) {}
 
   private isMobileClient(req: any) {
     return String(req.headers?.[MOBILE_CLIENT_HEADER] || '').toLowerCase() === 'mobile';
@@ -80,6 +84,31 @@ export class AuthController {
     };
   }
 
+  private async recordSecurityEvent(
+    req: any,
+    userId: string,
+    eventType: SecurityEventType,
+    sessionId?: string | null,
+    metadata?: Record<string, unknown>,
+  ) {
+    try {
+      const forwarded = String(req.headers?.['x-forwarded-for'] || '').split(',')[0]?.trim();
+      await this.securityEvents.record({
+        userId,
+        eventType,
+        sessionId,
+        ipAddress: forwarded || req.ip || req.connection?.remoteAddress || null,
+        userAgent: req.headers?.['user-agent'] || null,
+        metadata: {
+          client: this.isMobileClient(req) ? 'mobile' : 'web',
+          ...(metadata || {}),
+        },
+      });
+    } catch {
+      // Security telemetry must never turn a successful auth action into a failure.
+    }
+  }
+
   @Post('register')
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
@@ -95,6 +124,7 @@ export class AuthController {
     const result = await this.authService.login(loginDto);
     const mobile = this.isMobileClient(req);
     if (!mobile) this.setRefreshCookie(res, result.session.refresh_token);
+    await this.recordSecurityEvent(req, result.user.id, 'LOGIN', null);
     return this.toPublicSession(result, mobile);
   }
 
@@ -147,13 +177,16 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
-    return this.authService.changePassword(req.user.id, dto);
+    const result = await this.authService.changePassword(req.user.id, dto);
+    await this.recordSecurityEvent(req, req.user.id, 'PASSWORD_CHANGED', req.authSessionId);
+    return result;
   }
 
   @Delete('delete-account')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async deleteAccount(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    await this.recordSecurityEvent(req, req.user.id, 'ACCOUNT_DELETION_REQUESTED', req.authSessionId);
     const result = await this.authService.deleteAccount(req.user.id);
     this.clearRefreshCookie(res);
     return result;
@@ -163,6 +196,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async logout(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    await this.recordSecurityEvent(req, req.user.id, 'SESSION_REVOKED', req.authSessionId);
     const result = await this.authService.logoutCurrent(req.authToken);
     this.clearRefreshCookie(res);
     return result;
@@ -182,6 +216,7 @@ export class AuthController {
     @Param('sessionId') sessionId: string,
     @Res({ passthrough: true }) res: Response,
   ) {
+    await this.recordSecurityEvent(req, req.user.id, 'SESSION_REVOKED', sessionId);
     const result = await this.authService.logoutSession(req.authToken, sessionId, req.authSessionId);
     this.clearRefreshCookie(res);
     return result;
@@ -191,6 +226,7 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async logoutAll(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    await this.recordSecurityEvent(req, req.user.id, 'ALL_SESSIONS_REVOKED', req.authSessionId);
     const result = await this.authService.logoutAll(req.authToken);
     this.clearRefreshCookie(res);
     return result;
