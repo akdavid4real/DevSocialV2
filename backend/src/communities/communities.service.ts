@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { PostsService } from '../posts/posts.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
 import { CreateCommunityPostDto } from './dto/create-community-post.dto';
+import { CommunityAccessService } from './community-access.service';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -11,6 +12,7 @@ export class CommunitiesService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly postsService: PostsService,
+        private readonly accessService: CommunityAccessService,
     ) {}
 
     async findAll(options: { page: number; limit: number; search?: string; category?: string; viewerId?: string }) {
@@ -110,7 +112,13 @@ export class CommunitiesService {
 
     async findOne(idOrSlug: string, viewerId?: string) {
         const community = await this.getCommunity(idOrSlug, viewerId);
-        return this.serializeCommunity(community);
+        const accessState = viewerId
+            ? await this.accessService.getRequestState(viewerId, community.id)
+            : { requestId: null, requestStatus: null, inviteId: null, inviteStatus: null };
+        return {
+            ...this.serializeCommunity(community),
+            ...accessState,
+        };
     }
 
     async toggleMembership(userId: string, idOrSlug: string) {
@@ -120,13 +128,19 @@ export class CommunitiesService {
         if (existingMember?.role === 'CREATOR') {
             return {
                 isJoined: true,
+                requested: false,
                 memberCount: community.memberCount,
                 community: this.serializeCommunity(community),
             };
         }
 
         if (community.isPrivate && !existingMember) {
-            throw new ForbiddenException('Private communities require an invitation');
+            const request = await this.accessService.requestJoin(userId, community.id);
+            return {
+                ...request,
+                memberCount: community.memberCount,
+                community: this.serializeCommunity(community),
+            };
         }
 
         if (existingMember) {
@@ -163,6 +177,7 @@ export class CommunitiesService {
 
         return {
             isJoined: !existingMember,
+            requested: false,
             memberCount: updatedCommunity.memberCount,
             community: this.serializeCommunity(updatedCommunity),
         };
@@ -208,17 +223,30 @@ export class CommunitiesService {
         ]);
 
         const postIds = posts.map((post) => post.id);
-        const likeCounts = postIds.length > 0
-            ? await this.prisma.like.groupBy({
-                by: ['targetId'],
-                where: {
-                    targetId: { in: postIds },
-                    targetType: 'POST',
-                },
-                _count: true,
-            })
-            : [];
+        const [likeCounts, viewerLikes] = await Promise.all([
+            postIds.length > 0
+                ? this.prisma.like.groupBy({
+                    by: ['targetId'],
+                    where: {
+                        targetId: { in: postIds },
+                        targetType: 'POST',
+                    },
+                    _count: true,
+                })
+                : [],
+            viewerId && postIds.length > 0
+                ? this.prisma.like.findMany({
+                    where: {
+                        userId: viewerId,
+                        targetId: { in: postIds },
+                        targetType: 'POST',
+                    },
+                    select: { targetId: true },
+                })
+                : [],
+        ]);
         const likeCountMap = new Map(likeCounts.map((like) => [like.targetId, like._count]));
+        const viewerLikeIds = new Set(viewerLikes.map((like) => like.targetId));
 
         return {
             posts: posts.map((post) => ({
@@ -226,6 +254,7 @@ export class CommunitiesService {
                 likesCount: likeCountMap.get(post.id) || 0,
                 commentsCount: post._count.comments,
                 viewsCount: post.viewsCount || 0,
+                isLiked: viewerLikeIds.has(post.id),
             })),
             total,
             page: currentPage,
