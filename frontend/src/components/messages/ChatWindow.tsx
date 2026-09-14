@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { ArrowLeft, MoreVertical, User as UserIcon } from 'lucide-react'
+import { ArrowLeft, Loader2, MoreVertical, User as UserIcon } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import MessageBubble from './MessageBubble'
@@ -24,63 +24,90 @@ interface ChatWindowProps {
   onMessageSent?: () => void
 }
 
+const PAGE_SIZE = 50
+
 export default function ChatWindow({ conversationId, otherUser, currentUserId, onBack, onMessageSent }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [hasOlder, setHasOlder] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Fetch initial messages
   useEffect(() => {
     async function loadMessages() {
       setLoading(true)
-      const fetchedMessages = await getMessages(conversationId)
+      const fetchedMessages = await getMessages(conversationId, { limit: PAGE_SIZE })
       setMessages(fetchedMessages)
+      setHasOlder(fetchedMessages.length === PAGE_SIZE)
       setLoading(false)
-
-      // Mark as read
       await markAsRead(conversationId)
     }
 
-    loadMessages()
+    void loadMessages()
   }, [conversationId])
 
-  // Subscribe to new messages via Supabase realtime
   useEffect(() => {
     const unsubscribe = subscribeToMessages(conversationId, (newMessage) => {
       setMessages((prev) => {
-        // Prevent duplicates
-        if (prev.some((m) => m.id === newMessage.id)) return prev
+        if (prev.some((message) => message.id === newMessage.id)) return prev
         return [...prev, newMessage]
       })
 
-      // Mark as read if the other user sent it
       if (newMessage.senderId !== currentUserId) {
-        markAsRead(conversationId)
+        void markAsRead(conversationId)
       }
     })
 
     return unsubscribe
   }, [conversationId, currentUserId])
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
-    if (scrollRef.current) {
+    if (!loadingOlder && scrollRef.current) {
       scrollRef.current.scrollTo({
         top: scrollRef.current.scrollHeight,
-        behavior: 'smooth'
+        behavior: 'smooth',
       })
     }
-  }, [messages])
+  }, [messages, loadingOlder])
+
+  const handleLoadOlder = async () => {
+    const oldest = messages[0]
+    if (!oldest || loadingOlder) return
+
+    const container = scrollRef.current
+    const previousHeight = container?.scrollHeight || 0
+    setLoadingOlder(true)
+
+    try {
+      const older = await getMessages(conversationId, {
+        before: oldest.id,
+        limit: PAGE_SIZE,
+      })
+
+      setMessages((current) => {
+        const existingIds = new Set(current.map((message) => message.id))
+        return [...older.filter((message) => !existingIds.has(message.id)), ...current]
+      })
+      setHasOlder(older.length === PAGE_SIZE)
+
+      requestAnimationFrame(() => {
+        if (!container) return
+        container.scrollTop = container.scrollHeight - previousHeight
+      })
+    } catch {
+      toast.error('Failed to load older messages')
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
 
   const handleSend = async (content: string) => {
     const sent = await sendMessage(otherUser.id, content)
     if (sent) {
-      // Show message in UI immediately
       setMessages((prev) => {
-        if (prev.some((m) => m.id === sent.id)) return prev
+        if (prev.some((message) => message.id === sent.id)) return prev
         return [...prev, sent]
       })
-      // Notify parent so conversation list refreshes (shows latest message, reorders)
       onMessageSent?.()
     } else {
       toast.error('Failed to send message')
@@ -99,22 +126,16 @@ export default function ChatWindow({ conversationId, otherUser, currentUserId, o
       setMessages((prev) => prev.map((item) => (
         item.id === messageId ? { ...item, reactions } : item
       )))
-    } catch (error) {
+    } catch {
       toast.error('Failed to update reaction')
     }
   }
 
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Header */}
       <div className="flex items-center gap-3 p-4 border-b border-border bg-card">
         {onBack && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onBack}
-            className="lg:hidden rounded-xl"
-          >
+          <Button variant="ghost" size="icon" onClick={onBack} className="lg:hidden rounded-xl">
             <ArrowLeft className="h-5 w-5" />
           </Button>
         )}
@@ -136,9 +157,7 @@ export default function ChatWindow({ conversationId, otherUser, currentUserId, o
             <h3 className="text-sm font-semibold text-foreground truncate">
               {otherUser.displayName || otherUser.username}
             </h3>
-            <p className="text-xs text-muted-foreground truncate">
-              @{otherUser.username}
-            </p>
+            <p className="text-xs text-muted-foreground truncate">@{otherUser.username}</p>
           </div>
         </Link>
 
@@ -147,13 +166,12 @@ export default function ChatWindow({ conversationId, otherUser, currentUserId, o
         </Button>
       </div>
 
-      {/* Messages */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-primary/30 scrollbar-track-transparent hover:scrollbar-thumb-primary/50"
         style={{
           scrollbarWidth: 'thin',
-          scrollbarColor: 'hsl(var(--primary) / 0.3) transparent'
+          scrollbarColor: 'hsl(var(--primary) / 0.3) transparent',
         }}
       >
         {loading ? (
@@ -179,6 +197,13 @@ export default function ChatWindow({ conversationId, otherUser, currentUserId, o
           </div>
         ) : (
           <div className="space-y-4">
+            {hasOlder && (
+              <div className="flex justify-center pb-2">
+                <Button variant="ghost" size="sm" onClick={handleLoadOlder} disabled={loadingOlder}>
+                  {loadingOlder ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Loading...</> : 'Load older messages'}
+                </Button>
+              </div>
+            )}
             {messages.map((message) => (
               <MessageBubble
                 key={message.id}
@@ -192,7 +217,6 @@ export default function ChatWindow({ conversationId, otherUser, currentUserId, o
         )}
       </div>
 
-      {/* Input */}
       <MessageInput onSend={handleSend} placeholder={`Message ${otherUser.displayName || otherUser.username}...`} />
     </div>
   )
