@@ -1,5 +1,7 @@
+import { createHash } from 'crypto';
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectStatusDto } from './dto/update-project-status.dto';
 import { ProjectsService } from './projects.service';
@@ -47,8 +49,16 @@ export class ProjectsController {
     }
 
     @Get(':id')
-    findOne(@Param('id') id: string) {
-        return this.projectsService.findOne(id);
+    @UseGuards(OptionalJwtAuthGuard)
+    findOne(@Req() req: any, @Param('id') id: string) {
+        const viewerId = req.user?.id as string | undefined;
+        const ip = String(req.ip || req.connection?.remoteAddress || 'unknown');
+        const userAgent = String(req.headers?.['user-agent'] || 'unknown');
+        const visitorKey = viewerId
+            ? `user:${viewerId}`
+            : `guest:${createHash('sha256').update(`${ip}|${userAgent}`).digest('hex')}`;
+
+        return this.projectsService.findOne(id, viewerId, visitorKey);
     }
 
     @Put(':id/status')
