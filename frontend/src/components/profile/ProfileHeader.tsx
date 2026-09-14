@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { MapPin, Calendar, Edit2, Link as LinkIcon, Github, Linkedin, Loader2, Briefcase, MessageSquare, UserX, Clock3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import ShareProfileButton from './ShareProfileButton'
 import NextLink from '@/components/ui/link'
+import api from '@/lib/api'
+import { toast } from 'sonner'
 
 interface ProfileData {
     name: string
@@ -28,6 +30,8 @@ interface ProfileData {
     followingCount: number
     isFollowing: boolean
     followRequested?: boolean
+    requestId?: string | null
+    requestStatus?: string | null
     points?: number
     level?: number
     badges?: string[]
@@ -49,13 +53,66 @@ export default function ProfileHeader({
     profile,
     onEdit,
     isOwnProfile,
-    onFollowToggle,
-    followLoading,
+    onFollowToggle: _onFollowToggle,
+    followLoading: parentFollowLoading,
     onBlockUser,
     blockLoading,
     onFollowersClick,
     onFollowingClick,
 }: ProfileHeaderProps) {
+    const [isFollowing, setIsFollowing] = useState(profile.isFollowing)
+    const [followRequested, setFollowRequested] = useState(Boolean(profile.followRequested || profile.requestStatus === 'PENDING'))
+    const [requestId, setRequestId] = useState<string | null>(profile.requestId || null)
+    const [followersCount, setFollowersCount] = useState(profile.followersCount)
+    const [localFollowLoading, setLocalFollowLoading] = useState(false)
+
+    useEffect(() => {
+        setIsFollowing(profile.isFollowing)
+        setFollowRequested(Boolean(profile.followRequested || profile.requestStatus === 'PENDING'))
+        setRequestId(profile.requestId || null)
+        setFollowersCount(profile.followersCount)
+    }, [profile.isFollowing, profile.followRequested, profile.requestId, profile.requestStatus, profile.followersCount])
+
+    const handleFollowToggle = async () => {
+        if (isOwnProfile || localFollowLoading) return
+        setLocalFollowLoading(true)
+        try {
+            if (isFollowing) {
+                await api.delete(`/follow/${profile.userId}`)
+                setIsFollowing(false)
+                setFollowersCount((count) => Math.max(0, count - 1))
+                toast.success('Disconnected')
+                return
+            }
+
+            if (followRequested && requestId) {
+                await api.delete(`/follow/requests/${requestId}`)
+                setFollowRequested(false)
+                setRequestId(null)
+                toast.success('Follow request cancelled')
+                return
+            }
+
+            const response: any = await api.post(`/follow/${profile.userId}`)
+            const data = response?.data || response
+            if (data?.requested) {
+                setFollowRequested(true)
+                setRequestId(data.requestId || null)
+                toast.success('Follow request sent')
+            } else {
+                setIsFollowing(true)
+                setFollowersCount((count) => count + 1)
+                toast.success('Connected')
+            }
+        } catch (error: any) {
+            toast.error(error?.message || 'Failed to update follow status')
+        } finally {
+            setLocalFollowLoading(false)
+        }
+    }
+
+    const followLoading = parentFollowLoading || localFollowLoading
+
     return (
         <div className="w-full relative">
             <div className="h-48 sm:h-56 md:h-64 lg:h-72 w-full bg-gradient-to-br from-primary/20 via-purple-500/10 to-transparent relative overflow-hidden rounded-b-[40px] border-b border-border">
@@ -100,20 +157,20 @@ export default function ProfileHeader({
                                 ) : (
                                     <>
                                         <Button
-                                            onClick={onFollowToggle}
+                                            onClick={() => void handleFollowToggle()}
                                             disabled={followLoading}
-                                            variant={profile.isFollowing || profile.followRequested ? 'outline' : 'default'}
+                                            variant={isFollowing || followRequested ? 'outline' : 'default'}
                                             className={cn(
                                                 'rounded-full px-6 sm:px-8 md:px-10 h-10 sm:h-11 md:h-12 text-xs font-semibold uppercase tracking-widest hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed',
-                                                !profile.isFollowing && !profile.followRequested && 'bg-gradient-to-r from-primary to-purple-600 border-0 shadow-xl shadow-primary/20',
+                                                !isFollowing && !followRequested && 'bg-gradient-to-r from-primary to-purple-600 border-0 shadow-xl shadow-primary/20',
                                             )}
                                         >
                                             {followLoading ? (
                                                 <Loader2 className="h-4 w-4 animate-spin" />
-                                            ) : profile.followRequested ? (
+                                            ) : followRequested ? (
                                                 <><Clock3 className="h-4 w-4 mr-2" />Requested</>
                                             ) : (
-                                                profile.isFollowing ? 'Disconnect' : 'Connect'
+                                                isFollowing ? 'Disconnect' : 'Connect'
                                             )}
                                         </Button>
                                         <Button variant="outline" className="rounded-full h-10 sm:h-11 md:h-12 w-10 sm:w-11 md:w-12 p-0" asChild>
@@ -144,7 +201,7 @@ export default function ProfileHeader({
 
                 <div className="flex items-center gap-6 sm:gap-8 md:gap-12 py-4 sm:py-6 md:py-8 overflow-x-auto no-scrollbar">
                     <div onClick={onFollowersClick} className="flex flex-col items-center gap-1 group cursor-pointer">
-                        <span className="text-2xl font-semibold text-foreground group-hover:text-primary transition-colors">{profile.followersCount}</span>
+                        <span className="text-2xl font-semibold text-foreground group-hover:text-primary transition-colors">{followersCount}</span>
                         <span className="text-xs font-semibold text-muted-foreground/60 uppercase tracking-widest group-hover:text-muted-foreground transition-colors">Followers</span>
                     </div>
                     <div onClick={onFollowingClick} className="flex flex-col items-center gap-1 group cursor-pointer">
