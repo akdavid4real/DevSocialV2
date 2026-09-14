@@ -26,7 +26,8 @@ export class PostsController {
 
     @Post()
     @UseGuards(JwtAuthGuard)
-    create(@Req() req: any, @Body() createPostDto: CreatePostDto) {
+    async create(@Req() req: any, @Body() createPostDto: CreatePostDto) {
+        await this.visibility.assertCanPostInCommunity(req.user.id, createPostDto.communityId);
         return this.postsService.create(req.user.id, createPostDto);
     }
 
@@ -54,9 +55,8 @@ export class PostsController {
         return {
             ...result,
             posts: visiblePosts,
-            // Never expose counts that include private content.
             total: (safePage - 1) * safeLimit + visiblePosts.length,
-            lastPage: result.posts.length === safeLimit ? safePage + 1 : safePage,
+            lastPage: visiblePosts.length === safeLimit ? safePage + 1 : safePage,
         };
     }
 
@@ -79,7 +79,7 @@ export class PostsController {
             ...result,
             posts: visiblePosts,
             total: (safePage - 1) * safeLimit + visiblePosts.length,
-            lastPage: result.posts.length === safeLimit ? safePage + 1 : safePage,
+            lastPage: visiblePosts.length === safeLimit ? safePage + 1 : safePage,
         };
     }
 
