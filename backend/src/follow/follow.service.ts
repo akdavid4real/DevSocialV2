@@ -17,7 +17,7 @@ export class FollowService {
         const [targetUser, block] = await Promise.all([
             this.prisma.user.findUnique({
                 where: { id: followingId },
-                select: { id: true, username: true, displayName: true },
+                select: { id: true, username: true, displayName: true, privacySettings: true },
             }),
             this.prisma.block.findFirst({
                 where: {
@@ -32,6 +32,13 @@ export class FollowService {
 
         if (!targetUser) throw new NotFoundException('User not found');
         if (block) throw new ForbiddenException('Following is not available between these users');
+
+        const privacy = targetUser.privacySettings && typeof targetUser.privacySettings === 'object' && !Array.isArray(targetUser.privacySettings)
+            ? targetUser.privacySettings as Record<string, unknown>
+            : {};
+        if (String(privacy.profileVisibility || 'PUBLIC').toUpperCase() === 'PRIVATE') {
+            throw new ForbiddenException('This profile is private and requires an approved follow request');
+        }
 
         const existingFollow = await this.prisma.follow.findUnique({
             where: {
