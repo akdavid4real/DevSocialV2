@@ -6,7 +6,7 @@ import {
     Logger,
     NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../generated/prisma';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { SocialUtilsService } from '../common/social-utils.service';
@@ -32,6 +32,12 @@ type PostPoll = {
         multipleChoice?: boolean;
         maxChoices?: number;
     };
+};
+
+type MentionCandidate = {
+    id: string;
+    username: string;
+    privacySettings: unknown;
 };
 
 @Injectable()
@@ -63,7 +69,7 @@ export class PostsService {
                     if (!community) throw new NotFoundException('Community not found');
                 }
 
-                const mentionedUsers = extractedMentions.length
+                const candidates: MentionCandidate[] = extractedMentions.length
                     ? await tx.user.findMany({
                         where: {
                             username: {
@@ -71,9 +77,10 @@ export class PostsService {
                                 mode: 'insensitive',
                             },
                         },
-                        select: { id: true, username: true },
+                        select: { id: true, username: true, privacySettings: true },
                     })
                     : [];
+                const mentionedUsers = await this.filterMentionableUsers(tx, userId, candidates);
 
                 const post = await tx.post.create({
                     data: {
@@ -217,8 +224,9 @@ export class PostsService {
     }
 
     async findAll(page = 1, limit = 10) {
-        this.logger.log(`Fetching all active posts (Page: ${page}, Limit: ${limit})`);
-        const skip = (page - 1) * limit;
+        const safePage = Math.max(page || 1, 1);
+        const safeLimit = Math.min(Math.max(limit || 10, 1), 50);
+        const skip = (safePage - 1) * safeLimit;
 
         const [posts, total] = await Promise.all([
             this.prisma.post.findMany({
@@ -238,7 +246,7 @@ export class PostsService {
                 },
                 orderBy: { createdAt: 'desc' },
                 skip,
-                take: limit,
+                take: safeLimit,
             }),
             this.prisma.post.count({ where: { status: 'ACTIVE' } }),
         ]);
@@ -262,14 +270,12 @@ export class PostsService {
                 viewsCount: post.viewsCount || 0,
             })),
             total,
-            page,
-            lastPage: Math.ceil(total / limit),
+            page: safePage,
+            lastPage: Math.ceil(total / safeLimit),
         };
     }
 
     async searchPosts(query: string) {
-        this.logger.log(`Searching posts with query: ${query}`);
-
         const posts = await this.prisma.post.findMany({
             where: {
                 status: 'ACTIVE',
@@ -318,7 +324,9 @@ export class PostsService {
         const normalizedTag = tagName.replace(/^#/, '').trim().toLowerCase();
         if (!normalizedTag) throw new BadRequestException('Tag name is required');
 
-        const skip = (page - 1) * limit;
+        const safePage = Math.max(page || 1, 1);
+        const safeLimit = Math.min(Math.max(limit || 10, 1), 50);
+        const skip = (safePage - 1) * safeLimit;
         const tag = await this.prisma.tag.findFirst({
             where: {
                 OR: [
@@ -347,7 +355,7 @@ export class PostsService {
                 },
                 posts: [],
                 total: 0,
-                page,
+                page: safePage,
                 lastPage: 0,
             };
         }
@@ -376,7 +384,7 @@ export class PostsService {
                 },
                 orderBy: { createdAt: 'desc' },
                 skip,
-                take: limit,
+                take: safeLimit,
             }),
             this.prisma.post.count({ where }),
         ]);
@@ -400,8 +408,8 @@ export class PostsService {
                 viewsCount: post.viewsCount || 0,
             })),
             total,
-            page,
-            lastPage: Math.ceil(total / limit),
+            page: safePage,
+            lastPage: Math.ceil(total / safeLimit),
         };
     }
 
@@ -562,6 +570,7 @@ export class PostsService {
                 _count: { select: { comments: true } },
             },
             orderBy: { createdAt: 'desc' },
+            take: 100,
         });
 
         const postIds = posts.map((p) => p.id);
@@ -669,7 +678,7 @@ export class PostsService {
             throw new BadRequestException(`Cannot mention more than ${MAX_MENTIONS} users`);
         }
 
-        const [post, parentComment, user] = await Promise.all([
+        const [post, parentComment, user, candidates] = await Promise.all([
             this.prisma.post.findUnique({
                 where: { id: postId },
                 select: { authorId: true },
@@ -684,6 +693,12 @@ export class PostsService {
                 where: { id: userId },
                 select: { username: true, displayName: true },
             }),
+            mentions.length
+                ? this.prisma.user.findMany({
+                    where: { username: { in: mentions, mode: 'insensitive' } },
+                    select: { id: true, username: true, privacySettings: true },
+                })
+                : Promise.resolve([] as MentionCandidate[]),
         ]);
 
         if (!post) throw new NotFoundException('Post not found');
@@ -692,6 +707,7 @@ export class PostsService {
             throw new BadRequestException('Parent comment does not belong to this post');
         }
 
+        const mentionedUsers = await this.filterMentionableUsers(this.prisma, userId, candidates as MentionCandidate[]);
         const xpAmount = parentId ? 3 : 5;
         const comment = await this.prisma.$transaction(async (tx) => {
             const created = await tx.comment.create({
@@ -738,27 +754,33 @@ export class PostsService {
                 },
             });
 
+            for (const mentionedUser of mentionedUsers) {
+                if (mentionedUser.id === userId) continue;
+                await tx.userMention.create({
+                    data: {
+                        postId,
+                        commentId: created.id,
+                        mentionerId: userId,
+                        mentionedId: mentionedUser.id,
+                    },
+                });
+            }
+
             return created;
         });
 
         const senderName = user?.displayName || user?.username || 'Someone';
 
         try {
-            if (mentions.length > 0) {
-                const mentionedUsers = await this.prisma.user.findMany({
-                    where: { username: { in: mentions, mode: 'insensitive' } },
-                    select: { id: true },
-                });
-                for (const mentionedUser of mentionedUsers) {
-                    if (mentionedUser.id !== userId) {
-                        await this.notifications.notifyCommentMention(
-                            mentionedUser.id,
-                            userId,
-                            comment.id,
-                            postId,
-                            senderName,
-                        );
-                    }
+            for (const mentionedUser of mentionedUsers) {
+                if (mentionedUser.id !== userId) {
+                    await this.notifications.notifyCommentMention(
+                        mentionedUser.id,
+                        userId,
+                        comment.id,
+                        postId,
+                        senderName,
+                    );
                 }
             }
 
@@ -790,7 +812,9 @@ export class PostsService {
     }
 
     async getComments(postId: string, page = 1, limit = 20, userId?: string) {
-        const skip = (page - 1) * limit;
+        const safePage = Math.max(page || 1, 1);
+        const safeLimit = Math.min(Math.max(limit || 20, 1), 100);
+        const skip = (safePage - 1) * safeLimit;
         const [comments, total] = await Promise.all([
             this.prisma.comment.findMany({
                 where: { postId, parentId: null },
@@ -808,7 +832,7 @@ export class PostsService {
                 },
                 orderBy: { createdAt: 'desc' },
                 skip,
-                take: limit,
+                take: safeLimit,
             }),
             this.prisma.comment.count({ where: { postId, parentId: null } }),
         ]);
@@ -830,9 +854,9 @@ export class PostsService {
                 isLiked: userLikes.has(comment.id),
             })),
             total,
-            page,
-            lastPage: Math.ceil(total / limit),
-            hasMore: page < Math.ceil(total / limit),
+            page: safePage,
+            lastPage: Math.ceil(total / safeLimit),
+            hasMore: safePage < Math.ceil(total / safeLimit),
         };
     }
 
@@ -844,7 +868,9 @@ export class PostsService {
     }
 
     async getReplies(commentId: string, page = 1, limit = 10, userId?: string) {
-        const skip = (page - 1) * limit;
+        const safePage = Math.max(page || 1, 1);
+        const safeLimit = Math.min(Math.max(limit || 10, 1), 100);
+        const skip = (safePage - 1) * safeLimit;
         const [replies, total] = await Promise.all([
             this.prisma.comment.findMany({
                 where: { parentId: commentId },
@@ -861,7 +887,7 @@ export class PostsService {
                 },
                 orderBy: { createdAt: 'asc' },
                 skip,
-                take: limit,
+                take: safeLimit,
             }),
             this.prisma.comment.count({ where: { parentId: commentId } }),
         ]);
@@ -882,9 +908,9 @@ export class PostsService {
         return {
             replies: replies.map((reply) => ({ ...reply, isLiked: userLikes.has(reply.id) })),
             total,
-            page,
-            lastPage: Math.ceil(total / limit),
-            hasMore: page < Math.ceil(total / limit),
+            page: safePage,
+            lastPage: Math.ceil(total / safeLimit),
+            hasMore: safePage < Math.ceil(total / safeLimit),
         };
     }
 
@@ -1012,5 +1038,41 @@ export class PostsService {
             this.logger.error(`Failed to toggle comment like: ${error?.message || error}`);
             throw new InternalServerErrorException('Failed to toggle comment like');
         }
+    }
+
+    private async filterMentionableUsers(
+        db: Prisma.TransactionClient | PrismaService,
+        mentionerId: string,
+        candidates: MentionCandidate[],
+    ) {
+        const targetIds = candidates
+            .filter((candidate) => candidate.id !== mentionerId)
+            .map((candidate) => candidate.id);
+
+        const blocks = targetIds.length
+            ? await db.block.findMany({
+                where: {
+                    OR: [
+                        { blockerId: mentionerId, blockedId: { in: targetIds } },
+                        { blockerId: { in: targetIds }, blockedId: mentionerId },
+                    ],
+                },
+                select: { blockerId: true, blockedId: true },
+            })
+            : [];
+
+        const blockedIds = new Set<string>();
+        for (const block of blocks) {
+            blockedIds.add(block.blockerId === mentionerId ? block.blockedId : block.blockerId);
+        }
+
+        return candidates.filter((candidate) => {
+            if (candidate.id === mentionerId) return true;
+            if (blockedIds.has(candidate.id)) return false;
+            const settings = candidate.privacySettings && typeof candidate.privacySettings === 'object' && !Array.isArray(candidate.privacySettings)
+                ? candidate.privacySettings as Record<string, unknown>
+                : {};
+            return settings.allowMentions !== false;
+        });
     }
 }
