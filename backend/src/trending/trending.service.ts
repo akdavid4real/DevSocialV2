@@ -1,30 +1,30 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { PostVisibilityService } from '../posts/post-visibility.service';
 
 @Injectable()
 export class TrendingService {
-    private readonly logger = new Logger(TrendingService.name);
+    constructor(
+        private prisma: PrismaService,
+        private visibility: PostVisibilityService,
+    ) {}
 
-    constructor(private prisma: PrismaService) {}
-
-    async getTrendingData(period: string) {
-        this.logger.log(`Fetching trending data for period: ${period}`);
-
+    async getTrendingData(period: string, viewerId?: string) {
         const dateFilter = this.getDateFilter(period);
+        const candidatePosts = await this.getTrendingPosts(dateFilter);
+        const visiblePosts = await this.visibility.filterPosts(candidatePosts, viewerId);
+        const trendingPosts = visiblePosts.slice(0, 20);
 
-        const [trendingPosts, trendingTopics, risingUsers] = await Promise.all([
-            this.getTrendingPosts(dateFilter),
-            this.getTrendingTopics(dateFilter),
+        const [trendingTopics, risingUsers] = await Promise.all([
+            this.getTrendingTopics(trendingPosts),
             this.getRisingUsers(dateFilter),
         ]);
-
-        const stats = this.calculateStats(trendingPosts);
 
         return {
             trendingPosts,
             trendingTopics,
             risingUsers,
-            stats,
+            stats: this.calculateStats(trendingPosts),
         };
     }
 
@@ -32,6 +32,7 @@ export class TrendingService {
         const date = new Date();
         switch (period) {
             case 'today':
+            case 'day':
                 date.setHours(0, 0, 0, 0);
                 break;
             case 'week':
@@ -40,16 +41,16 @@ export class TrendingService {
             case 'month':
                 date.setMonth(date.getMonth() - 1);
                 break;
+            case 'all':
+                date.setFullYear(2000, 0, 1);
+                break;
             default:
-                date.setHours(0, 0, 0, 0);
+                date.setDate(date.getDate() - 7);
         }
-        this.logger.log(`Date filter for ${period}: ${date.toISOString()}`);
         return date;
     }
 
     private async getTrendingPosts(dateFilter: Date) {
-        this.logger.log(`Fetching posts created after: ${dateFilter.toISOString()}`);
-        
         const posts = await this.prisma.post.findMany({
             where: {
                 createdAt: { gte: dateFilter },
@@ -65,88 +66,57 @@ export class TrendingService {
                         level: true,
                     },
                 },
-                _count: {
-                    select: {
-                        comments: true,
-                    },
-                },
+                _count: { select: { comments: true } },
             },
             orderBy: { createdAt: 'desc' },
+            take: 100,
         });
 
-        this.logger.log(`Found ${posts.length} posts for trending`);
+        const postIds = posts.map((post) => post.id);
+        const likeCounts = postIds.length
+            ? await this.prisma.like.groupBy({
+                by: ['targetId'],
+                where: { targetId: { in: postIds }, targetType: 'POST' },
+                _count: true,
+            })
+            : [];
+        const likeCountMap = new Map(likeCounts.map((item) => [item.targetId, item._count]));
 
-        const postIds = posts.map(p => p.id);
-        const likeCounts = await this.prisma.like.groupBy({
-            by: ['targetId'],
-            where: {
-                targetId: { in: postIds },
-                targetType: 'POST',
-            },
-            _count: true,
-        });
-
-        const likeCountMap = new Map(likeCounts.map(lc => [lc.targetId, lc._count]));
-
-        const postsWithScores = posts.map(post => {
-            const likesCount = likeCountMap.get(post.id) || 0;
-            const commentsCount = post._count.comments;
-            const trendingScore = likesCount * 2 + commentsCount * 3;
-
-            return {
-                ...post,
-                likesCount,
-                commentsCount,
-                viewsCount: post.viewsCount || 0,
-                trendingScore,
-            };
-        });
-
-        return postsWithScores
-            .sort((a, b) => b.trendingScore - a.trendingScore)
-            .slice(0, 20);
+        return posts
+            .map((post) => {
+                const likesCount = likeCountMap.get(post.id) || 0;
+                const commentsCount = post._count.comments;
+                return {
+                    ...post,
+                    likesCount,
+                    commentsCount,
+                    viewsCount: post.viewsCount || 0,
+                    trendingScore: likesCount * 2 + commentsCount * 3,
+                };
+            })
+            .sort((a, b) => b.trendingScore - a.trendingScore);
     }
 
-    private async getTrendingTopics(dateFilter: Date) {
-        const posts = await this.prisma.post.findMany({
-            where: {
-                createdAt: { gte: dateFilter },
-                status: 'ACTIVE',
-            },
-            select: {
-                id: true,
-                content: true,
-            },
-        });
-
+    private getTrendingTopics(posts: Array<{ content: string }>) {
         const tagCounts = new Map<string, number>();
         const hashtagRegex = /#(\w+)/g;
 
-        posts.forEach(post => {
-            const matches = post.content.matchAll(hashtagRegex);
-            for (const match of matches) {
+        posts.forEach((post) => {
+            for (const match of post.content.matchAll(hashtagRegex)) {
                 const tag = match[1].toLowerCase();
                 tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
             }
         });
 
-        const topics = Array.from(tagCounts.entries())
-            .map(([tag, posts]) => ({
-                tag,
-                posts,
-                growth: '+100%',
-            }))
+        return Array.from(tagCounts.entries())
+            .map(([tag, count]) => ({ tag, posts: count, growth: '+100%' }))
             .sort((a, b) => b.posts - a.posts)
             .slice(0, 10);
-
-        return topics;
     }
 
     private async getRisingUsers(dateFilter: Date) {
         const users = await this.prisma.user.findMany({
-            where: {
-                updatedAt: { gte: dateFilter },
-            },
+            where: { updatedAt: { gte: dateFilter }, isBlocked: false },
             select: {
                 id: true,
                 username: true,
@@ -154,51 +124,48 @@ export class TrendingService {
                 avatar: true,
                 level: true,
                 points: true,
+                privacySettings: true,
             },
-            orderBy: {
-                points: 'desc',
-            },
-            take: 10,
+            orderBy: { points: 'desc' },
+            take: 30,
         });
 
-        const usersWithStats = await Promise.all(
-            users.map(async (user) => {
-                const postsCount = await this.prisma.post.count({
-                    where: {
-                        authorId: user.id,
-                        createdAt: { gte: dateFilter },
-                    },
-                });
+        const publicUsers = users.filter((user) => {
+            const settings = user.privacySettings && typeof user.privacySettings === 'object' && !Array.isArray(user.privacySettings)
+                ? user.privacySettings as Record<string, unknown>
+                : {};
+            return String(settings.profileVisibility || 'PUBLIC').toUpperCase() !== 'PRIVATE';
+        }).slice(0, 10);
 
-                return {
-                    ...user,
-                    postsCount,
-                };
-            })
+        const counts = await Promise.all(
+            publicUsers.map((user) => this.prisma.post.count({
+                where: { authorId: user.id, createdAt: { gte: dateFilter }, status: 'ACTIVE' },
+            })),
         );
 
-        return usersWithStats;
+        return publicUsers.map(({ privacySettings: _privacySettings, ...user }, index) => ({
+            ...user,
+            postsCount: counts[index],
+        }));
     }
 
     private calculateStats(posts: any[]) {
-        const hotPosts = posts.length;
         const totalViews = posts.reduce((sum, post) => sum + (post.viewsCount || 0), 0);
         const totalEngagements = posts.reduce(
             (sum, post) => sum + (post.likesCount || 0) + (post.commentsCount || 0),
-            0
+            0,
         );
 
-        const formatNumber = (num: number) => {
-            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-            return num.toString();
-        };
-
         return {
-            hotPosts,
-            growth: '+25%',
-            totalViews: formatNumber(totalViews),
-            engagements: formatNumber(totalEngagements),
+            hotPosts: posts.length,
+            totalViews: this.formatNumber(totalViews),
+            engagements: this.formatNumber(totalEngagements),
         };
+    }
+
+    private formatNumber(num: number) {
+        if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+        if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
+        return num.toString();
     }
 }
