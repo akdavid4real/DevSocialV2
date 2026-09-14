@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Put, Post, Body, Query, Req, UseGuards, Param, NotFoundException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -13,29 +13,24 @@ export class NotificationsController {
     ) {}
 
     @Get('push-subscription')
-    async getPushSubscription(@Req() req: any) {
+    getPushSubscription(@Req() req: any) {
         return this.notificationsService.getPushSubscription(req.user.id);
     }
 
     @Post('push-subscription')
-    async savePushSubscription(@Req() req: any, @Body() body: SavePushSubscriptionDto) {
+    savePushSubscription(@Req() req: any, @Body() body: SavePushSubscriptionDto) {
         return this.notificationsService.savePushSubscription(req.user.id, body);
     }
 
     @Delete('push-subscription')
-    async removePushSubscription(@Req() req: any) {
+    removePushSubscription(@Req() req: any) {
         return this.notificationsService.removePushSubscription(req.user.id);
     }
 
     @Get(':id')
     async getNotification(@Req() req: any, @Param('id') id: string) {
-        const userId = req.user.id;
-
         const notification = await this.prisma.notification.findFirst({
-            where: {
-                id,
-                recipientId: userId, // Security: only get own notifications
-            },
+            where: { id, recipientId: req.user.id },
             include: {
                 sender: {
                     select: {
@@ -49,10 +44,7 @@ export class NotificationsController {
             },
         });
 
-        if (!notification) {
-            throw new NotFoundException('Notification not found');
-        }
-
+        if (!notification) throw new NotFoundException('Notification not found');
         return notification;
     }
 
@@ -62,14 +54,14 @@ export class NotificationsController {
         @Query('limit') limit?: string,
         @Query('unread') unread?: string,
     ) {
-        const userId = req.user.id;
-        const limitNum = limit ? parseInt(limit) : 50;
+        const parsedLimit = limit ? parseInt(limit) : 50;
+        const limitNum = Math.min(Math.max(Number.isFinite(parsedLimit) ? parsedLimit : 50, 1), 100);
         const unreadOnly = unread === 'true';
 
         const [notifications, unreadCount] = await Promise.all([
             this.prisma.notification.findMany({
                 where: {
-                    recipientId: userId,
+                    recipientId: req.user.id,
                     ...(unreadOnly ? { read: false } : {}),
                 },
                 include: {
@@ -87,61 +79,37 @@ export class NotificationsController {
                 take: limitNum,
             }),
             this.prisma.notification.count({
-                where: {
-                    recipientId: userId,
-                    read: false,
-                },
+                where: { recipientId: req.user.id, read: false },
             }),
         ]);
 
         return {
             success: true,
-            data: {
-                notifications,
-                unreadCount,
-            },
+            data: { notifications, unreadCount },
         };
     }
 
     @Put('mark-read')
     async markAsRead(@Req() req: any, @Body() body: { notificationIds?: string[] }) {
-        const userId = req.user.id;
-
-        if (body.notificationIds && body.notificationIds.length > 0) {
-            // Mark specific notifications as read
-            await this.prisma.notification.updateMany({
-                where: {
-                    id: { in: body.notificationIds },
-                    recipientId: userId,
-                },
-                data: { read: true },
-            });
-        } else {
-            // Mark all as read
-            await this.prisma.notification.updateMany({
-                where: {
-                    recipientId: userId,
-                    read: false,
-                },
-                data: { read: true },
-            });
-        }
-
+        const ids = Array.isArray(body.notificationIds) ? body.notificationIds.slice(0, 100) : [];
+        await this.prisma.notification.updateMany({
+            where: ids.length > 0
+                ? { id: { in: ids }, recipientId: req.user.id }
+                : { recipientId: req.user.id, read: false },
+            data: { read: true },
+        });
         return { success: true };
     }
 
     @Put('mark-unread')
     async markAsUnread(@Req() req: any, @Body() body: { notificationIds: string[] }) {
-        const userId = req.user.id;
-
-        await this.prisma.notification.updateMany({
-            where: {
-                id: { in: body.notificationIds },
-                recipientId: userId,
-            },
-            data: { read: false },
-        });
-
+        const ids = Array.isArray(body.notificationIds) ? body.notificationIds.slice(0, 100) : [];
+        if (ids.length > 0) {
+            await this.prisma.notification.updateMany({
+                where: { id: { in: ids }, recipientId: req.user.id },
+                data: { read: false },
+            });
+        }
         return { success: true };
     }
 }
