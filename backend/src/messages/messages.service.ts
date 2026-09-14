@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { SendMessageDto } from './dto/send-message.dto';
 
 type MessageReaction = {
@@ -17,7 +18,10 @@ type MessageReaction = {
 
 @Injectable()
 export class MessagesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   async sendMessage(senderId: string, dto: SendMessageDto) {
     await this.assertCanMessage(senderId, dto.receiverId);
@@ -38,6 +42,9 @@ export class MessagesService {
         data: { lastActivity: new Date() },
       }),
     ]);
+
+    const senderName = message.sender.displayName || message.sender.username;
+    await this.notifications.notifyMessage(dto.receiverId, senderId, senderName);
 
     return message;
   }
