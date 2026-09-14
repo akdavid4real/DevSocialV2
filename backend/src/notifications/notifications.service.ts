@@ -1,17 +1,37 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as webpush from 'web-push';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { NotificationType, Prisma } from '../generated/prisma';
 import { SocialUtilsService } from '../common/social-utils.service';
 import { SavePushSubscriptionDto } from './dto/push-subscription.dto';
 
+type PushPreferenceKey =
+    | 'pushOnNewFollower'
+    | 'pushOnMention'
+    | 'pushOnLike'
+    | 'pushOnComment'
+    | 'pushOnMessage';
+
 @Injectable()
 export class NotificationsService {
     private readonly logger = new Logger(NotificationsService.name);
+    private readonly pushConfigured: boolean;
 
     constructor(
         private prisma: PrismaService,
         private socialUtils: SocialUtilsService,
-    ) { }
+        private config: ConfigService,
+    ) {
+        const publicKey = this.config.get<string>('VAPID_PUBLIC_KEY');
+        const privateKey = this.config.get<string>('VAPID_PRIVATE_KEY');
+        const subject = this.config.get<string>('VAPID_SUBJECT');
+        this.pushConfigured = Boolean(publicKey && privateKey && subject);
+
+        if (this.pushConfigured) {
+            webpush.setVapidDetails(subject!, publicKey!, privateKey!);
+        }
+    }
 
     async getPushSubscription(userId: string) {
         const user = await this.prisma.user.findUnique({
@@ -22,6 +42,7 @@ export class NotificationsService {
         return {
             subscribed: !!user?.pushSubscription,
             subscription: user?.pushSubscription ?? null,
+            configured: this.pushConfigured,
         };
     }
 
@@ -39,7 +60,7 @@ export class NotificationsService {
             data: { pushSubscription: savedSubscription },
         });
 
-        return { subscribed: true };
+        return { subscribed: true, configured: this.pushConfigured };
     }
 
     async removePushSubscription(userId: string) {
@@ -60,14 +81,37 @@ export class NotificationsService {
         relatedId?: string;
         relatedType?: string;
         actionUrl?: string;
+        pushPreferenceKey?: PushPreferenceKey;
     }) {
         try {
-            // Don't notify self
-            if (data.recipientId === data.senderId) {
-                return null;
-            }
+            if (data.recipientId === data.senderId) return null;
 
-            return await this.prisma.notification.create({
+            const [recipient, blocked] = await Promise.all([
+                this.prisma.user.findUnique({
+                    where: { id: data.recipientId },
+                    select: {
+                        notificationSettings: true,
+                        privacySettings: true,
+                        pushSubscription: true,
+                    },
+                }),
+                this.prisma.block.findFirst({
+                    where: {
+                        OR: [
+                            { blockerId: data.recipientId, blockedId: data.senderId },
+                            { blockerId: data.senderId, blockedId: data.recipientId },
+                        ],
+                    },
+                    select: { id: true },
+                }),
+            ]);
+
+            if (!recipient || blocked) return null;
+
+            const privacy = this.normalizeObject(recipient.privacySettings);
+            if (data.type === 'MENTION' && privacy.allowMentions === false) return null;
+
+            const notification = await this.prisma.notification.create({
                 data: {
                     recipientId: data.recipientId,
                     senderId: data.senderId,
@@ -79,7 +123,21 @@ export class NotificationsService {
                     actionUrl: data.actionUrl,
                 },
             });
-        } catch (error) {
+
+            await this.sendPushIfEnabled(
+                data.recipientId,
+                recipient.notificationSettings,
+                recipient.pushSubscription,
+                data.pushPreferenceKey,
+                {
+                    title: data.title,
+                    body: data.message,
+                    url: data.actionUrl || '/notifications',
+                },
+            );
+
+            return notification;
+        } catch (error: any) {
             this.logger.error(`Failed to create notification: ${error.message}`);
             return null;
         }
@@ -95,6 +153,7 @@ export class NotificationsService {
             relatedId: postId,
             relatedType: 'post',
             actionUrl: `/posts/${postId}`,
+            pushPreferenceKey: 'pushOnMention',
         });
     }
 
@@ -108,6 +167,7 @@ export class NotificationsService {
             relatedId: commentId,
             relatedType: 'comment',
             actionUrl: `/posts/${postId}`,
+            pushPreferenceKey: 'pushOnMention',
         });
     }
 
@@ -121,6 +181,7 @@ export class NotificationsService {
             relatedId: postId,
             relatedType: 'post',
             actionUrl: `/posts/${postId}`,
+            pushPreferenceKey: 'pushOnComment',
         });
     }
 
@@ -134,6 +195,7 @@ export class NotificationsService {
             relatedId: commentId,
             relatedType: 'comment',
             actionUrl: `/posts/${postId}`,
+            pushPreferenceKey: 'pushOnComment',
         });
     }
 
@@ -147,6 +209,7 @@ export class NotificationsService {
             relatedId: postId,
             relatedType: 'post',
             actionUrl: `/posts/${postId}`,
+            pushPreferenceKey: 'pushOnLike',
         });
     }
 
@@ -160,6 +223,7 @@ export class NotificationsService {
             relatedId: commentId,
             relatedType: 'comment',
             actionUrl: `/posts/${postId}`,
+            pushPreferenceKey: 'pushOnLike',
         });
     }
 
@@ -173,6 +237,69 @@ export class NotificationsService {
             relatedId: senderId,
             relatedType: 'user',
             actionUrl: `/@${followerUsername}`,
+            pushPreferenceKey: 'pushOnNewFollower',
         });
+    }
+
+    async notifyMessage(recipientId: string, senderId: string, senderUsername: string) {
+        return this.createNotification({
+            recipientId,
+            senderId,
+            type: 'SYSTEM',
+            title: '💬 New message',
+            message: `${senderUsername} sent you a message`,
+            relatedId: senderId,
+            relatedType: 'user',
+            actionUrl: '/messages',
+            pushPreferenceKey: 'pushOnMessage',
+        });
+    }
+
+    private async sendPushIfEnabled(
+        userId: string,
+        rawSettings: unknown,
+        rawSubscription: unknown,
+        preferenceKey: PushPreferenceKey | undefined,
+        payload: { title: string; body: string; url: string },
+    ) {
+        if (!this.pushConfigured || !preferenceKey) return;
+
+        const settings = this.normalizeObject(rawSettings);
+        if (settings[preferenceKey] === false) return;
+
+        const subscription = this.normalizeObject(rawSubscription);
+        const keys = this.normalizeObject(subscription.keys);
+        if (
+            typeof subscription.endpoint !== 'string'
+            || typeof keys.p256dh !== 'string'
+            || typeof keys.auth !== 'string'
+        ) {
+            return;
+        }
+
+        try {
+            await webpush.sendNotification(
+                {
+                    endpoint: subscription.endpoint,
+                    keys: { p256dh: keys.p256dh, auth: keys.auth },
+                },
+                JSON.stringify(payload),
+            );
+        } catch (error: any) {
+            if (error?.statusCode === 404 || error?.statusCode === 410) {
+                await this.prisma.user.update({
+                    where: { id: userId },
+                    data: { pushSubscription: Prisma.JsonNull },
+                });
+                return;
+            }
+            this.logger.warn(`Push delivery failed for user ${userId}: ${error?.message || 'unknown error'}`);
+        }
+    }
+
+    private normalizeObject(value: unknown): Record<string, any> {
+        return value && typeof value === 'object' && !Array.isArray(value)
+            ? value as Record<string, any>
+            : {};
     }
 }
