@@ -42,21 +42,23 @@ export class PostsController {
         const viewerId = req.user?.id;
         if (search) {
             const posts = await this.postsService.searchPosts(search);
-            return this.visibility.filterPosts(posts, viewerId);
+            const visiblePosts = await this.visibility.filterPosts(posts, viewerId);
+            return this.visibility.attachViewerLikeState(visiblePosts, viewerId);
         }
 
         const pageNum = page ? parseInt(page) : 1;
         const limitNum = limit ? parseInt(limit) : 10;
         const result = await this.postsService.findAll(pageNum, limitNum);
         const visiblePosts = await this.visibility.filterPosts(result.posts, viewerId);
+        const decoratedPosts = await this.visibility.attachViewerLikeState(visiblePosts, viewerId);
         const safePage = Math.max(pageNum || 1, 1);
         const safeLimit = Math.min(Math.max(limitNum || 10, 1), 50);
 
         return {
             ...result,
-            posts: visiblePosts,
-            total: (safePage - 1) * safeLimit + visiblePosts.length,
-            lastPage: visiblePosts.length === safeLimit ? safePage + 1 : safePage,
+            posts: decoratedPosts,
+            total: (safePage - 1) * safeLimit + decoratedPosts.length,
+            lastPage: decoratedPosts.length === safeLimit ? safePage + 1 : safePage,
         };
     }
 
@@ -72,14 +74,15 @@ export class PostsController {
         const limitNum = limit ? parseInt(limit) : 10;
         const result = await this.postsService.findByTag(tagName, pageNum, limitNum);
         const visiblePosts = await this.visibility.filterPosts(result.posts, req.user?.id);
+        const decoratedPosts = await this.visibility.attachViewerLikeState(visiblePosts, req.user?.id);
         const safePage = Math.max(pageNum || 1, 1);
         const safeLimit = Math.min(Math.max(limitNum || 10, 1), 50);
 
         return {
             ...result,
-            posts: visiblePosts,
-            total: (safePage - 1) * safeLimit + visiblePosts.length,
-            lastPage: visiblePosts.length === safeLimit ? safePage + 1 : safePage,
+            posts: decoratedPosts,
+            total: (safePage - 1) * safeLimit + decoratedPosts.length,
+            lastPage: decoratedPosts.length === safeLimit ? safePage + 1 : safePage,
         };
     }
 
@@ -135,7 +138,9 @@ export class PostsController {
         const userAgent = req?.headers?.['user-agent'];
         await this.visibility.trackUniqueView(id, userId, ipAddress, userAgent);
 
-        return this.postsService.findOne(id);
+        const post = await this.postsService.findOne(id);
+        const [decorated] = await this.visibility.attachViewerLikeState([post], userId);
+        return decorated;
     }
 
     @Delete(':id')
