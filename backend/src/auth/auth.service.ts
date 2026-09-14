@@ -64,9 +64,10 @@ export class AuthService {
 
     const authUserId = authData.user.id;
 
+    let user: any;
     try {
-      const user = await this.prisma.$transaction(async (tx) => {
-        const createdUser = await tx.user.create({
+      user = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
           data: {
             supabaseAuthId: authUserId,
             email,
@@ -80,21 +81,9 @@ export class AuthService {
           },
         });
 
-        await tx.userStats.create({ data: { userId: createdUser.id } });
-        return createdUser;
+        await tx.userStats.create({ data: { userId: created.id } });
+        return created;
       });
-
-      if (dto.referralCode) {
-        try {
-          await this.referralsService.createCompletedReferral(dto.referralCode, user.id);
-        } catch (referralError: any) {
-          this.logger.error(
-            `Signup completed but referral credit failed for user ${user.id}: ${referralError?.message || referralError}`,
-          );
-        }
-      }
-
-      return user;
     } catch (dbError: any) {
       await this.supabase.client.auth.admin.deleteUser(authUserId);
       if (dbError?.code === 'P2002') {
@@ -102,6 +91,16 @@ export class AuthService {
       }
       throw new InternalServerErrorException('Failed to create user profile');
     }
+
+    if (dto.referralCode) {
+      try {
+        await this.referralsService.processReferral(user.id, dto.referralCode);
+      } catch (error: any) {
+        this.logger.warn(`Referral processing failed after registration: ${error?.message || error}`);
+      }
+    }
+
+    return user;
   }
 
   async verifyOtp(dto: VerifyDto) {
@@ -247,19 +246,31 @@ export class AuthService {
         firstName: true,
         lastName: true,
         displayName: true,
+        bio: true,
         avatar: true,
         bannerUrl: true,
-        bio: true,
-        location: true,
+        role: true,
+        affiliation: true,
         techCareerPath: true,
         techStack: true,
         experienceLevel: true,
         githubUsername: true,
         linkedinUrl: true,
         portfolioUrl: true,
-        role: true,
+        location: true,
+        website: true,
+        interests: true,
+        points: true,
+        level: true,
+        badges: true,
+        loginStreak: true,
+        lastStreakDate: true,
+        followersCount: true,
+        followingCount: true,
         isVerified: true,
+        onboardingCompleted: true,
         createdAt: true,
+        updatedAt: true,
       },
     });
 
