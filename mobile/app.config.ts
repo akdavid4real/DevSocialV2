@@ -27,14 +27,29 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundleIdentifier: 'com.devsocial.app',
     supportsTablet: true,
   },
+  extra: {
+    ...config.extra,
+    eas: {
+      ...(config.extra?.eas || {}),
+      projectId: process.env.EXPO_PUBLIC_EAS_PROJECT_ID || config.extra?.eas?.projectId,
+    },
+  },
   plugins: [
     'expo-router',
     'expo-secure-store',
     [
+      'expo-notifications',
+      {
+        icon: './assets/android-icon-monochrome.png',
+        color: '#6366f1',
+        defaultChannel: 'default',
+      },
+    ],
+    [
       'expo-build-properties',
       {
         android: {
-          usesCleartextTraffic: true,
+          usesCleartextTraffic: process.env.NODE_ENV !== 'production',
         },
       },
     ],
