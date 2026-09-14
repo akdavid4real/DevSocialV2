@@ -1,9 +1,30 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 @Injectable()
 export class PostVisibilityService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async assertCanPostInCommunity(userId: string, communityId?: string | null) {
+    if (!communityId) return true;
+
+    const [community, membership] = await Promise.all([
+      this.prisma.community.findUnique({
+        where: { id: communityId },
+        select: { id: true },
+      }),
+      this.prisma.communityMember.findUnique({
+        where: {
+          communityId_userId: { communityId, userId },
+        },
+        select: { userId: true },
+      }),
+    ]);
+
+    if (!community) throw new NotFoundException('Community not found');
+    if (!membership) throw new ForbiddenException('Join this community before posting');
+    return true;
+  }
 
   async assertPostVisible(postId: string, viewerId?: string) {
     const post = await this.prisma.post.findUnique({
