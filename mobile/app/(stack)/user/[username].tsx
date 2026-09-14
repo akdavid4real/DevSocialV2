@@ -1,15 +1,21 @@
 import { View, Text, FlatList, Pressable, Image, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { ArrowLeft, UserPlus, UserMinus, MessageSquare, MapPin, Award } from 'lucide-react-native'
+import { ArrowLeft, UserPlus, UserMinus, MessageSquare, MapPin, Award, Clock3 } from 'lucide-react-native'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Toast from 'react-native-toast-message'
-import * as api from '@/lib/api'
+import apiClient, * as api from '@/lib/api'
 import { formatCount } from '@/lib/utils'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { PostCard } from '@/components/home/PostCard'
+
+type FollowState = {
+  isFollowing: boolean
+  requestId: string | null
+  requestStatus: string | null
+}
 
 export default function UserProfileScreen() {
   const { username } = useLocalSearchParams<{ username: string }>()
@@ -26,8 +32,8 @@ export default function UserProfileScreen() {
   const profile = profileQuery.data
 
   const followQuery = useQuery({
-    queryKey: ['is-following', profile?.id],
-    queryFn: () => api.isFollowing(profile!.id),
+    queryKey: ['follow-state', profile?.id],
+    queryFn: () => apiClient.get<any, FollowState>(`/follow/${profile!.id}/is-following`),
     enabled: !!profile?.id,
   })
 
@@ -41,11 +47,23 @@ export default function UserProfileScreen() {
   const followMutation = useMutation({
     mutationFn: async () => {
       if (!profile) throw new Error('Profile unavailable')
-      return followQuery.data ? api.unfollowUser(profile.id) : api.followUser(profile.id)
+      const state = followQuery.data
+      if (state?.isFollowing) return api.unfollowUser(profile.id)
+      if (state?.requestId && state.requestStatus === 'PENDING') {
+        return apiClient.delete(`/follow/requests/${state.requestId}`)
+      }
+      return api.followUser(profile.id)
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['is-following', profile?.id] })
+    onSuccess: (response: any) => {
+      void queryClient.invalidateQueries({ queryKey: ['follow-state', profile?.id] })
       void queryClient.invalidateQueries({ queryKey: ['user-profile', username] })
+      void queryClient.invalidateQueries({ queryKey: ['follow-requests'] })
+      const data = response?.data || response
+      if (data?.requested) {
+        Toast.show({ type: 'success', text1: 'Follow request sent' })
+      } else if (followQuery.data?.requestStatus === 'PENDING') {
+        Toast.show({ type: 'success', text1: 'Follow request cancelled' })
+      }
     },
     onError: (error: any) => {
       Toast.show({ type: 'error', text1: error?.message || 'Unable to update follow state' })
@@ -94,7 +112,9 @@ export default function UserProfileScreen() {
   }
 
   const posts = postsQuery.data || []
-  const isFollowing = Boolean(followQuery.data)
+  const followState = followQuery.data
+  const isFollowing = Boolean(followState?.isFollowing)
+  const isRequested = followState?.requestStatus === 'PENDING' && Boolean(followState.requestId)
 
   return (
     <SafeAreaView className="flex-1 bg-background">
@@ -126,14 +146,22 @@ export default function UserProfileScreen() {
                 <View className="flex-row gap-2">
                   <Button variant="outline" size="sm" onPress={handleMessage}><MessageSquare size={16} color="#A1A1AA" /></Button>
                   <Button
-                    variant={isFollowing ? 'outline' : 'default'}
+                    variant={isFollowing || isRequested ? 'outline' : 'default'}
                     size="sm"
                     onPress={() => followMutation.mutate()}
-                    loading={followMutation.isPending}
+                    loading={followMutation.isPending || followQuery.isLoading}
                   >
                     <View className="flex-row items-center gap-1">
-                      {isFollowing ? <UserMinus size={16} color="#A1A1AA" /> : <UserPlus size={16} color="#fff" />}
-                      <Text className={`text-sm font-semibold ${isFollowing ? 'text-text-secondary' : 'text-white'}`}>{isFollowing ? 'Following' : 'Follow'}</Text>
+                      {isFollowing ? (
+                        <UserMinus size={16} color="#A1A1AA" />
+                      ) : isRequested ? (
+                        <Clock3 size={16} color="#A1A1AA" />
+                      ) : (
+                        <UserPlus size={16} color="#fff" />
+                      )}
+                      <Text className={`text-sm font-semibold ${isFollowing || isRequested ? 'text-text-secondary' : 'text-white'}`}>
+                        {isFollowing ? 'Following' : isRequested ? 'Requested' : 'Follow'}
+                      </Text>
                     </View>
                   </Button>
                 </View>
