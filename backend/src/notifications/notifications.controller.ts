@@ -1,14 +1,17 @@
 import { Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
+import { MobilePushService } from './mobile-push.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { SavePushSubscriptionDto } from './dto/push-subscription.dto';
+import { MobilePushTokenDto } from './dto/mobile-push-token.dto';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {
     constructor(
         private readonly notificationsService: NotificationsService,
+        private readonly mobilePush: MobilePushService,
         private readonly prisma: PrismaService,
     ) {}
 
@@ -25,6 +28,16 @@ export class NotificationsController {
     @Delete('push-subscription')
     removePushSubscription(@Req() req: any) {
         return this.notificationsService.removePushSubscription(req.user.id);
+    }
+
+    @Post('mobile-push-token')
+    registerMobilePushToken(@Req() req: any, @Body() body: MobilePushTokenDto) {
+        return this.mobilePush.register(req.user.id, body.token);
+    }
+
+    @Delete('mobile-push-token')
+    removeMobilePushToken(@Req() req: any, @Body() body: MobilePushTokenDto) {
+        return this.mobilePush.remove(req.user.id, body.token);
     }
 
     @Get(':id')
