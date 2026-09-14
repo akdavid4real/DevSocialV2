@@ -11,6 +11,7 @@ import {
   Bell,
   Sparkles,
   UserX,
+  UserPlus,
   Shield,
   ChevronRight,
 } from 'lucide-react'
@@ -39,6 +40,12 @@ const settingsSections = [
     href: '/settings/privacy',
     icon: Lock,
     description: 'Control who can see your content',
+  },
+  {
+    label: 'Follow Requests',
+    href: '/settings/follow-requests',
+    icon: UserPlus,
+    description: 'Approve access to a private profile',
   },
   {
     label: 'Notifications',
@@ -76,17 +83,12 @@ export default function SettingsLayout({
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-6xl mx-auto py-8 px-4">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground">Settings</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage your account settings and preferences
-          </p>
+          <p className="text-muted-foreground mt-1">Manage your account settings and preferences</p>
         </div>
 
-        {/* Two-column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-8">
-          {/* Sidebar Navigation */}
           <aside className="lg:sticky lg:top-24 lg:self-start">
             <nav className="space-y-1">
               {settingsSections.map((section) => {
@@ -108,13 +110,9 @@ export default function SettingsLayout({
                       <Icon className="h-5 w-5 flex-shrink-0" />
                       <div className="hidden sm:block">
                         <div className="font-medium text-sm">{section.label}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                          {section.description}
-                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{section.description}</div>
                       </div>
-                      <div className="sm:hidden font-medium text-sm">
-                        {section.label}
-                      </div>
+                      <div className="sm:hidden font-medium text-sm">{section.label}</div>
                     </div>
                     <ChevronRight
                       className={cn(
@@ -128,11 +126,8 @@ export default function SettingsLayout({
             </nav>
           </aside>
 
-          {/* Main Content */}
           <main className="min-w-0">
-            <div className="bg-card border border-border rounded-lg">
-              {children}
-            </div>
+            <div className="bg-card border border-border rounded-lg">{children}</div>
           </main>
         </div>
       </div>
