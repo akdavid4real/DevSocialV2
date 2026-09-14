@@ -1,6 +1,5 @@
 import '../global.css'
 
-// Hermes polyfill for WeakRef if missing
 if (typeof WeakRef === 'undefined') {
   // @ts-ignore
   globalThis.WeakRef = class WeakRef<T extends object> {
@@ -13,12 +12,14 @@ if (typeof WeakRef === 'undefined') {
 import { useEffect, useState } from 'react'
 import { View, ActivityIndicator, Text } from 'react-native'
 import { Slot, useRouter, useSegments } from 'expo-router'
+import * as Notifications from 'expo-notifications'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Toast from 'react-native-toast-message'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { notificationUrl, registerForMobilePush } from '@/lib/push-notifications'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,9 +37,7 @@ function AuthGate() {
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  useEffect(() => setMounted(true), [])
 
   useEffect(() => {
     if (loading || !mounted) return
@@ -46,19 +45,33 @@ function AuthGate() {
     const inAuthGroup = segments[0] === '(auth)'
     const inOnboardingGroup = segments[0] === '(onboarding)'
 
-    console.log('[Nav] Segments:', segments.join('/'), '| User:', user?.username || 'none', '| Onboarded:', user?.onboardingCompleted)
-
     if (!user && !inAuthGroup) {
-      console.log('[Nav] → Redirecting to login')
       router.replace('/(auth)/login')
     } else if (user && !user.onboardingCompleted && !inOnboardingGroup) {
-      console.log('[Nav] → Redirecting to onboarding')
       router.replace('/(onboarding)')
     } else if (user && user.onboardingCompleted && (inAuthGroup || inOnboardingGroup)) {
-      console.log('[Nav] → Redirecting to tabs')
       router.replace('/(tabs)')
     }
-  }, [user, loading, segments, mounted])
+  }, [user, loading, segments, mounted, router])
+
+  useEffect(() => {
+    if (!user?.id) return
+    void registerForMobilePush().catch(() => {
+      // Push registration is optional; app functionality must continue without permission/configuration.
+    })
+  }, [user?.id])
+
+  useEffect(() => {
+    const routeResponse = (response: Notifications.NotificationResponse | null) => {
+      if (!response) return
+      const target = notificationUrl(response)
+      if (target) router.push(target as any)
+    }
+
+    void Notifications.getLastNotificationResponseAsync().then(routeResponse)
+    const subscription = Notifications.addNotificationResponseReceivedListener(routeResponse)
+    return () => subscription.remove()
+  }, [router])
 
   if (loading) {
     return (
