@@ -173,6 +173,23 @@ export class AuthController {
     return this.authService.getMe(req.user.id);
   }
 
+  @Get('security-stats')
+  @UseGuards(JwtAuthGuard)
+  async getSecurityStats(@Req() req: any) {
+    const [user, telemetry] = await Promise.all([
+      this.authService.getMe(req.user.id),
+      this.securityEvents.getStats(req.user.id),
+    ]);
+    return {
+      accountCreated: user.createdAt,
+      lastLogin: telemetry.lastLogin,
+      lastPasswordChange: telemetry.lastPasswordChange,
+      totalLogins: telemetry.totalLogins,
+      recentLogins: telemetry.recentLogins,
+      recentEvents: telemetry.recentEvents,
+    };
+  }
+
   @Post('change-password')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
