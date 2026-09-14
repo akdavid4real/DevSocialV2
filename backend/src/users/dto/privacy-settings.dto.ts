@@ -1,4 +1,5 @@
-import { IsBoolean, IsEnum } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsEnum, ValidateNested } from 'class-validator';
 
 export enum ProfileVisibility {
   PUBLIC = 'PUBLIC',
@@ -35,5 +36,7 @@ export class PrivacySettingsDto {
 }
 
 export class UpdatePrivacySettingsDto {
+  @ValidateNested()
+  @Type(() => PrivacySettingsDto)
   privacySettings: PrivacySettingsDto;
 }
