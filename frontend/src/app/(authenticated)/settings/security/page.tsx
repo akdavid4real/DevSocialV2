@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, LogOut, Shield, AlertCircle, CheckCircle2, Clock, Monitor } from 'lucide-react'
+import { Loader2, LogOut, Shield, AlertCircle, Clock, Monitor } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { useRouter } from '@/lib/navigation'
@@ -23,11 +23,10 @@ export default function SecuritySettings() {
   const [logoutCurrentLoading, setLogoutCurrentLoading] = useState(false)
   const [lastPasswordChange, setLastPasswordChange] = useState<string | null>(null)
   const [accountCreated, setAccountCreated] = useState<string | null>(null)
-  const [totalLogins, setTotalLogins] = useState(0)
 
   useEffect(() => {
-    fetchSessions()
-    fetchSecurityStats()
+    void fetchSessions()
+    void fetchSecurityStats()
   }, [])
 
   const fetchSessions = async () => {
@@ -48,7 +47,6 @@ export default function SecuritySettings() {
       if (data) {
         setLastPasswordChange(data.lastPasswordChange)
         setAccountCreated(data.accountCreated)
-        setTotalLogins(data.totalLogins || 0)
       }
     } catch {
       // Optional overview data; session revocation remains available.
@@ -114,10 +112,10 @@ export default function SecuritySettings() {
       <div className="p-6 space-y-4">
         <div>
           <h3 className="text-lg font-semibold text-foreground mb-1">Security Overview</h3>
-          <p className="text-sm text-muted-foreground">Your account security at a glance</p>
+          <p className="text-sm text-muted-foreground">Only metrics DevSocial can currently verify are shown.</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="p-4 rounded-lg border border-border bg-card">
             <div className="flex items-center gap-2 mb-2">
               <Shield className="h-4 w-4 text-primary" />
@@ -126,7 +124,7 @@ export default function SecuritySettings() {
             <p className="text-2xl font-bold text-foreground">
               {accountCreated
                 ? Math.max(0, Math.floor((Date.now() - new Date(accountCreated).getTime()) / 86400000))
-                : 0}
+                : '—'}
             </p>
             <p className="text-xs text-muted-foreground">days</p>
           </div>
@@ -137,17 +135,9 @@ export default function SecuritySettings() {
               <span className="text-xs font-medium text-muted-foreground">Password Changed</span>
             </div>
             <p className="text-sm font-medium text-foreground">
-              {lastPasswordChange ? new Date(lastPasswordChange).toLocaleDateString() : 'Not available'}
+              {lastPasswordChange ? new Date(lastPasswordChange).toLocaleDateString() : 'Not tracked yet'}
             </p>
-          </div>
-
-          <div className="p-4 rounded-lg border border-border bg-card">
-            <div className="flex items-center gap-2 mb-2">
-              <CheckCircle2 className="h-4 w-4 text-primary" />
-              <span className="text-xs font-medium text-muted-foreground">Recorded Logins</span>
-            </div>
-            <p className="text-2xl font-bold text-foreground">{totalLogins}</p>
-            <p className="text-xs text-muted-foreground">logins</p>
+            <p className="text-xs text-muted-foreground mt-1">No fake login counter is displayed.</p>
           </div>
         </div>
       </div>
