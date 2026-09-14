@@ -39,22 +39,25 @@ export class UploadController {
     }))
     async uploadFile(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
         if (!file) throw new BadRequestException('No file uploaded');
-        if (!ALLOWED_TYPES.has(file.mimetype)) {
-            throw new BadRequestException('Invalid file type. Only supported images and videos are allowed.');
-        }
-        if (file.size > MAX_UPLOAD_SIZE) {
-            throw new BadRequestException('File too large. Max size is 20MB.');
-        }
-        if (!this.matchesFileSignature(file.buffer, file.mimetype)) {
-            throw new BadRequestException('File content does not match its declared type');
+        if (file.size > MAX_UPLOAD_SIZE) throw new BadRequestException('File too large. Max size is 20MB.');
+
+        const detectedMime = this.detectMime(file.buffer);
+        if (!detectedMime || !ALLOWED_TYPES.has(detectedMime)) {
+            throw new BadRequestException('Unsupported or invalid file content');
         }
 
+        // Never trust a client-declared MIME type. The uploaded content signature is the source of truth.
+        const normalizedFile: Express.Multer.File = {
+            ...file,
+            mimetype: detectedMime,
+        };
+
         try {
-            const url = await this.storageService.uploadFile(file, 'uploads', req.user.id);
+            const url = await this.storageService.uploadFile(normalizedFile, 'uploads', req.user.id);
             return {
                 success: true,
                 url,
-                mimetype: file.mimetype,
+                mimetype: detectedMime,
                 size: file.size,
             };
         } catch (error: any) {
@@ -63,30 +66,34 @@ export class UploadController {
         }
     }
 
-    private matchesFileSignature(buffer: Buffer, mimetype: string) {
-        if (!buffer || buffer.length < 12) return false;
+    private detectMime(buffer: Buffer): string | null {
+        if (!buffer || buffer.length < 12) return null;
 
-        if (mimetype === 'image/jpeg') {
-            return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+        if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+            return 'image/jpeg';
         }
-        if (mimetype === 'image/png') {
-            return buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+        if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+            return 'image/png';
         }
-        if (mimetype === 'image/gif') {
-            const header = buffer.subarray(0, 6).toString('ascii');
-            return header === 'GIF87a' || header === 'GIF89a';
+        const gifHeader = buffer.subarray(0, 6).toString('ascii');
+        if (gifHeader === 'GIF87a' || gifHeader === 'GIF89a') {
+            return 'image/gif';
         }
-        if (mimetype === 'image/webp') {
-            return buffer.subarray(0, 4).toString('ascii') === 'RIFF'
-                && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+        if (
+            buffer.subarray(0, 4).toString('ascii') === 'RIFF'
+            && buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+        ) {
+            return 'image/webp';
         }
-        if (mimetype === 'video/webm') {
-            return buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+        if (buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) {
+            return 'video/webm';
         }
-        if (mimetype === 'video/mp4' || mimetype === 'video/quicktime') {
-            return buffer.subarray(4, 8).toString('ascii') === 'ftyp';
+        if (buffer.subarray(4, 8).toString('ascii') === 'ftyp') {
+            const brand = buffer.subarray(8, 12).toString('ascii').toLowerCase();
+            if (brand.includes('qt')) return 'video/quicktime';
+            return 'video/mp4';
         }
 
-        return false;
+        return null;
     }
 }
