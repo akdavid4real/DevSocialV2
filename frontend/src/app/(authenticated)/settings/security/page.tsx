@@ -15,6 +15,13 @@ type Session = {
   isCurrent: boolean
 }
 
+type LoginEvent = {
+  createdAt: string
+  ipAddress?: string | null
+  userAgent?: string | null
+  sessionId?: string | null
+}
+
 export default function SecuritySettings() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -23,6 +30,9 @@ export default function SecuritySettings() {
   const [logoutCurrentLoading, setLogoutCurrentLoading] = useState(false)
   const [lastPasswordChange, setLastPasswordChange] = useState<string | null>(null)
   const [accountCreated, setAccountCreated] = useState<string | null>(null)
+  const [lastLogin, setLastLogin] = useState<string | null>(null)
+  const [totalLogins, setTotalLogins] = useState(0)
+  const [recentLogins, setRecentLogins] = useState<LoginEvent[]>([])
 
   useEffect(() => {
     void fetchSessions()
@@ -42,14 +52,17 @@ export default function SecuritySettings() {
 
   const fetchSecurityStats = async () => {
     try {
-      const response: any = await api.get('/users/security-stats')
-      const data = response?.data
+      const response: any = await api.get('/auth/security-stats')
+      const data = response?.data || response
       if (data) {
-        setLastPasswordChange(data.lastPasswordChange)
-        setAccountCreated(data.accountCreated)
+        setLastPasswordChange(data.lastPasswordChange || null)
+        setAccountCreated(data.accountCreated || null)
+        setLastLogin(data.lastLogin || null)
+        setTotalLogins(Number(data.totalLogins || 0))
+        setRecentLogins(Array.isArray(data.recentLogins) ? data.recentLogins : [])
       }
     } catch {
-      // Optional overview data; session revocation remains available.
+      // Session revocation remains available if overview telemetry is unavailable.
     }
   }
 
@@ -105,101 +118,76 @@ export default function SecuritySettings() {
       <div className="p-6">
         <h2 className="text-2xl font-bold text-foreground">Security</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Review your current login session and revoke access when needed.
+          Review your login history and revoke access when needed.
         </p>
       </div>
 
       <div className="p-6 space-y-4">
         <div>
           <h3 className="text-lg font-semibold text-foreground mb-1">Security Overview</h3>
-          <p className="text-sm text-muted-foreground">Only metrics DevSocial can currently verify are shown.</p>
+          <p className="text-sm text-muted-foreground">These metrics come from recorded authentication events.</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-4 rounded-lg border border-border bg-card">
-            <div className="flex items-center gap-2 mb-2">
-              <Shield className="h-4 w-4 text-primary" />
-              <span className="text-xs font-medium text-muted-foreground">Account Age</span>
-            </div>
-            <p className="text-2xl font-bold text-foreground">
-              {accountCreated
-                ? Math.max(0, Math.floor((Date.now() - new Date(accountCreated).getTime()) / 86400000))
-                : '—'}
-            </p>
+            <div className="flex items-center gap-2 mb-2"><Shield className="h-4 w-4 text-primary" /><span className="text-xs font-medium text-muted-foreground">Account Age</span></div>
+            <p className="text-2xl font-bold text-foreground">{accountCreated ? Math.max(0, Math.floor((Date.now() - new Date(accountCreated).getTime()) / 86400000)) : '—'}</p>
             <p className="text-xs text-muted-foreground">days</p>
           </div>
-
           <div className="p-4 rounded-lg border border-border bg-card">
-            <div className="flex items-center gap-2 mb-2">
-              <Clock className="h-4 w-4 text-primary" />
-              <span className="text-xs font-medium text-muted-foreground">Password Changed</span>
-            </div>
-            <p className="text-sm font-medium text-foreground">
-              {lastPasswordChange ? new Date(lastPasswordChange).toLocaleDateString() : 'Not tracked yet'}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">No fake login counter is displayed.</p>
+            <div className="flex items-center gap-2 mb-2"><Clock className="h-4 w-4 text-primary" /><span className="text-xs font-medium text-muted-foreground">Last Login</span></div>
+            <p className="text-sm font-medium text-foreground">{lastLogin ? new Date(lastLogin).toLocaleString() : 'No recorded login yet'}</p>
+          </div>
+          <div className="p-4 rounded-lg border border-border bg-card">
+            <div className="flex items-center gap-2 mb-2"><Clock className="h-4 w-4 text-primary" /><span className="text-xs font-medium text-muted-foreground">Password Changed</span></div>
+            <p className="text-sm font-medium text-foreground">{lastPasswordChange ? new Date(lastPasswordChange).toLocaleString() : 'No recorded change yet'}</p>
+          </div>
+          <div className="p-4 rounded-lg border border-border bg-card">
+            <div className="flex items-center gap-2 mb-2"><Shield className="h-4 w-4 text-primary" /><span className="text-xs font-medium text-muted-foreground">Recorded Logins</span></div>
+            <p className="text-2xl font-bold text-foreground">{totalLogins}</p>
           </div>
         </div>
       </div>
+
+      {recentLogins.length > 0 && (
+        <div className="p-6 space-y-4">
+          <div><h3 className="text-lg font-semibold text-foreground mb-1">Recent Login History</h3><p className="text-sm text-muted-foreground">The last authentication events recorded for your account.</p></div>
+          <div className="space-y-2">
+            {recentLogins.slice(0, 5).map((login, index) => (
+              <div key={`${login.createdAt}-${index}`} className="p-3 rounded-lg border border-border bg-card">
+                <p className="text-sm font-medium text-foreground">{new Date(login.createdAt).toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground mt-1">{login.userAgent || 'Unknown client'}{login.ipAddress ? ` • ${login.ipAddress}` : ''}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="p-6 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-foreground mb-1">Current Session</h3>
-            <p className="text-sm text-muted-foreground">
-              DevSocial verifies this browser session against Supabase. Use “All devices” to revoke every active login for your account.
-            </p>
+            <p className="text-sm text-muted-foreground">DevSocial verifies this browser session against Supabase. Use “All devices” to revoke every active login for your account.</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleLogoutCurrent} disabled={!currentSession || logoutCurrentLoading}>
-              {logoutCurrentLoading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <LogOut className="mr-2 h-3 w-3" />}
-              This session
-            </Button>
-            <Button variant="destructive" size="sm" onClick={handleLogoutAll} disabled={logoutAllLoading}>
-              {logoutAllLoading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <LogOut className="mr-2 h-3 w-3" />}
-              All devices
-            </Button>
+            <Button variant="outline" size="sm" onClick={handleLogoutCurrent} disabled={!currentSession || logoutCurrentLoading}>{logoutCurrentLoading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <LogOut className="mr-2 h-3 w-3" />}This session</Button>
+            <Button variant="destructive" size="sm" onClick={handleLogoutAll} disabled={logoutAllLoading}>{logoutAllLoading ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <LogOut className="mr-2 h-3 w-3" />}All devices</Button>
           </div>
         </div>
 
         {!currentSession ? (
-          <div className="text-center py-8 border border-border rounded-lg">
-            <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No active session could be verified.</p>
-          </div>
+          <div className="text-center py-8 border border-border rounded-lg"><AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-2" /><p className="text-sm text-muted-foreground">No active session could be verified.</p></div>
         ) : (
           <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-card">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <Monitor className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-medium text-foreground">Current browser session</h4>
-                <span className="px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded">Current</span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Verified: {new Date(currentSession.lastActive).toLocaleString()}
-              </p>
-              {currentSession.expiresAt && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Access token expires: {new Date(currentSession.expiresAt).toLocaleString()}
-                </p>
-              )}
-            </div>
+            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0"><Monitor className="h-5 w-5" /></div>
+            <div><div className="flex items-center gap-2 mb-1"><h4 className="font-medium text-foreground">Current browser session</h4><span className="px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary rounded">Current</span></div><p className="text-xs text-muted-foreground">Verified: {new Date(currentSession.lastActive).toLocaleString()}</p>{currentSession.expiresAt && <p className="text-xs text-muted-foreground mt-1">Access token expires: {new Date(currentSession.expiresAt).toLocaleString()}</p>}</div>
           </div>
         )}
       </div>
 
       <div className="p-6 space-y-4">
-        <div>
-          <h3 className="text-lg font-semibold text-foreground mb-1">Two-Factor Authentication</h3>
-          <p className="text-sm text-muted-foreground">Add an extra layer of security to your account</p>
-        </div>
-        <div className="p-4 rounded-lg border-2 border-dashed border-border bg-muted/30 text-center py-8">
-          <Shield className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm font-medium text-foreground mb-1">Two-Factor Authentication</p>
-          <p className="text-xs text-muted-foreground">Coming soon</p>
-        </div>
+        <div><h3 className="text-lg font-semibold text-foreground mb-1">Two-Factor Authentication</h3><p className="text-sm text-muted-foreground">Add an extra layer of security to your account</p></div>
+        <div className="p-4 rounded-lg border-2 border-dashed border-border bg-muted/30 text-center py-8"><Shield className="h-10 w-10 text-muted-foreground mx-auto mb-2" /><p className="text-sm font-medium text-foreground mb-1">Two-Factor Authentication</p><p className="text-xs text-muted-foreground">Coming soon</p></div>
       </div>
     </div>
   )
