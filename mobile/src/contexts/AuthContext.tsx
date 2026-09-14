@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import Toast from 'react-native-toast-message'
 import * as api from '@/lib/api'
 import { tokenCache } from '@/lib/api'
-import { unwrap } from '@/lib/utils'
 import type { User } from '@/lib/types'
 
 interface AuthContextType {
@@ -27,6 +26,17 @@ const AuthContext = createContext<AuthContextType>({
   refreshUser: async () => {},
 })
 
+function normalizeSignupPayload(input: any) {
+  const payload = { ...input }
+  if (!Number.isInteger(payload.birthMonth)) delete payload.birthMonth
+  if (!Number.isInteger(payload.birthDay)) delete payload.birthDay
+  if (!payload.affiliation?.trim()) delete payload.affiliation
+  if (!payload.affiliationType?.trim()) delete payload.affiliationType
+  if (!payload.referralCode?.trim()) delete payload.referralCode
+  delete payload.confirmPassword
+  return payload
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
@@ -38,11 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null)
         return
       }
-
-      const response = await api.getMe()
-      const result = unwrap(response)
-      const userData = unwrap(result)
-      setUser(userData)
+      setUser(await api.getMe())
     } catch {
       await tokenCache.clear()
       setUser(null)
@@ -52,18 +58,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    loadUser()
+    void loadUser()
   }, [loadUser])
 
   const login = async (credentials: { usernameOrEmail: string; password: string }) => {
-    const response = await api.login(credentials)
-    const data = unwrap(response)
+    const data = await api.login(credentials)
     const accessToken = data.session?.access_token
     const refreshToken = data.session?.refresh_token
-
-    if (!accessToken || !refreshToken) {
-      throw new Error('The server did not return a complete mobile session')
-    }
+    if (!accessToken || !refreshToken) throw new Error('The server did not return a complete mobile session')
 
     await tokenCache.setSession(accessToken, refreshToken)
     setUser(data.user)
@@ -71,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signup = async (userData: any) => {
-    const response = await api.register(userData)
+    const response = await api.register(normalizeSignupPayload(userData))
     Toast.show({ type: 'success', text1: 'Registration successful!' })
     return response
   }
@@ -98,18 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        isAuthenticated: !!user,
-        login,
-        signup,
-        verifyOtp,
-        logout,
-        refreshUser,
-      }}
-    >
+    <AuthContext.Provider value={{ user, loading, isAuthenticated: !!user, login, signup, verifyOtp, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )
