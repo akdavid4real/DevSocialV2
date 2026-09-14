@@ -2,9 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as webpush from 'web-push';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { NotificationType, Prisma } from '../generated/prisma';
+import { NotificationType } from '../generated/prisma';
 import { SocialUtilsService } from '../common/social-utils.service';
 import { SavePushSubscriptionDto } from './dto/push-subscription.dto';
+import { MobilePushService } from './mobile-push.service';
 
 type PushPreferenceKey =
     | 'pushOnNewFollower'
@@ -16,19 +17,20 @@ type PushPreferenceKey =
 @Injectable()
 export class NotificationsService {
     private readonly logger = new Logger(NotificationsService.name);
-    private readonly pushConfigured: boolean;
+    private readonly webPushConfigured: boolean;
 
     constructor(
         private prisma: PrismaService,
         private socialUtils: SocialUtilsService,
         private config: ConfigService,
+        private mobilePush: MobilePushService,
     ) {
         const publicKey = this.config.get<string>('VAPID_PUBLIC_KEY');
         const privateKey = this.config.get<string>('VAPID_PRIVATE_KEY');
         const subject = this.config.get<string>('VAPID_SUBJECT');
-        this.pushConfigured = Boolean(publicKey && privateKey && subject);
+        this.webPushConfigured = Boolean(publicKey && privateKey && subject);
 
-        if (this.pushConfigured) {
+        if (this.webPushConfigured) {
             webpush.setVapidDetails(subject!, publicKey!, privateKey!);
         }
     }
@@ -38,37 +40,29 @@ export class NotificationsService {
             where: { id: userId },
             select: { pushSubscription: true },
         });
+        const store = this.mobilePush.normalize(user?.pushSubscription);
 
         return {
-            subscribed: !!user?.pushSubscription,
-            subscription: user?.pushSubscription ?? null,
-            configured: this.pushConfigured,
+            subscribed: Boolean(store.web),
+            subscription: store.web ?? null,
+            configured: this.webPushConfigured,
+            mobileDevices: store.expoTokens.length,
         };
     }
 
     async savePushSubscription(userId: string, subscription: SavePushSubscriptionDto) {
-        const savedSubscription: Prisma.InputJsonValue = {
+        await this.mobilePush.setWeb(userId, {
             endpoint: subscription.endpoint,
             keys: {
                 p256dh: subscription.keys.p256dh,
                 auth: subscription.keys.auth,
             },
-        };
-
-        await this.prisma.user.update({
-            where: { id: userId },
-            data: { pushSubscription: savedSubscription },
         });
-
-        return { subscribed: true, configured: this.pushConfigured };
+        return { subscribed: true, configured: this.webPushConfigured };
     }
 
     async removePushSubscription(userId: string) {
-        await this.prisma.user.update({
-            where: { id: userId },
-            data: { pushSubscription: Prisma.JsonNull },
-        });
-
+        await this.mobilePush.removeWeb(userId);
         return { subscribed: false };
     }
 
@@ -262,12 +256,17 @@ export class NotificationsService {
         preferenceKey: PushPreferenceKey | undefined,
         payload: { title: string; body: string; url: string },
     ) {
-        if (!this.pushConfigured || !preferenceKey) return;
+        if (!preferenceKey) return;
 
         const settings = this.normalizeObject(rawSettings);
         if (settings[preferenceKey] === false) return;
 
-        const subscription = this.normalizeObject(rawSubscription);
+        const store = this.mobilePush.normalize(rawSubscription);
+
+        await this.mobilePush.sendExpo(userId, rawSubscription, payload);
+
+        if (!this.webPushConfigured || !store.web) return;
+        const subscription = store.web;
         const keys = this.normalizeObject(subscription.keys);
         if (
             typeof subscription.endpoint !== 'string'
@@ -287,13 +286,10 @@ export class NotificationsService {
             );
         } catch (error: any) {
             if (error?.statusCode === 404 || error?.statusCode === 410) {
-                await this.prisma.user.update({
-                    where: { id: userId },
-                    data: { pushSubscription: Prisma.JsonNull },
-                });
+                await this.mobilePush.removeWeb(userId);
                 return;
             }
-            this.logger.warn(`Push delivery failed for user ${userId}: ${error?.message || 'unknown error'}`);
+            this.logger.warn(`Web push delivery failed for user ${userId}: ${error?.message || 'unknown error'}`);
         }
     }
 
