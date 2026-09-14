@@ -1,26 +1,43 @@
+import { randomUUID } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+
+const EXTENSION_BY_MIME: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'video/mp4': 'mp4',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm',
+};
 
 @Injectable()
 export class StorageService {
     private readonly logger = new Logger(StorageService.name);
     private readonly BUCKET_NAME = 'assets';
 
-    constructor(private supabaseService: SupabaseService) { }
+    constructor(private supabaseService: SupabaseService) {}
 
-    async uploadFile(file: Express.Multer.File, folder: string = 'general'): Promise<string> {
+    async uploadFile(
+        file: Express.Multer.File,
+        folder: string = 'general',
+        ownerId: string = 'system',
+    ): Promise<string> {
         const client = this.supabaseService.client;
-        const timestamp = Date.now();
-        const extension = file.originalname.split('.').pop();
-        const fileName = `${folder}/${timestamp}-${Math.random().toString(36).substring(7)}.${extension}`;
+        const extension = EXTENSION_BY_MIME[file.mimetype];
+        if (!extension) throw new Error('Unsupported file type');
 
-        this.logger.log(`Uploading file to Supabase: ${fileName}`);
+        const safeFolder = folder.replace(/[^a-zA-Z0-9/_-]/g, '');
+        const safeOwner = ownerId.replace(/[^a-zA-Z0-9_-]/g, '');
+        const fileName = `${safeFolder}/${safeOwner}/${Date.now()}-${randomUUID()}.${extension}`;
 
-        const { data, error } = await client.storage
+        const { error } = await client.storage
             .from(this.BUCKET_NAME)
             .upload(fileName, file.buffer, {
                 contentType: file.mimetype,
-                upsert: true,
+                upsert: false,
+                cacheControl: '31536000',
             });
 
         if (error) {
