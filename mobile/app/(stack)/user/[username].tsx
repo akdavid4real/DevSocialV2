@@ -1,7 +1,7 @@
 import { View, Text, FlatList, Pressable, Image, ActivityIndicator } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { ArrowLeft, UserPlus, UserMinus, MessageSquare, MapPin, Award, Clock3 } from 'lucide-react-native'
+import { ArrowLeft, UserPlus, UserMinus, MessageSquare, MapPin, Award, Clock3, Lock } from 'lucide-react-native'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Toast from 'react-native-toast-message'
 import apiClient, * as api from '@/lib/api'
@@ -17,6 +17,13 @@ type FollowState = {
   requestStatus: string | null
 }
 
+type AccessibleProfile = Awaited<ReturnType<typeof api.getUserByUsername>> & {
+  isPrivate?: boolean
+  canViewContent?: boolean
+  requestId?: string | null
+  requestStatus?: string | null
+}
+
 export default function UserProfileScreen() {
   const { username } = useLocalSearchParams<{ username: string }>()
   const router = useRouter()
@@ -24,7 +31,14 @@ export default function UserProfileScreen() {
 
   const profileQuery = useQuery({
     queryKey: ['user-profile', username],
-    queryFn: () => api.getUserByUsername(username!),
+    queryFn: async (): Promise<AccessibleProfile> => {
+      try {
+        return await api.getUserByUsername(username!) as AccessibleProfile
+      } catch (error: any) {
+        if (error?.status !== 404 && error?.status !== 403) throw error
+        return apiClient.get<any, AccessibleProfile>(`/profile-access/${encodeURIComponent(username!)}`)
+      }
+    },
     enabled: !!username,
     retry: (count, error: any) => error?.status >= 500 && count < 2,
   })
@@ -35,12 +49,21 @@ export default function UserProfileScreen() {
     queryKey: ['follow-state', profile?.id],
     queryFn: () => apiClient.get<any, FollowState>(`/follow/${profile!.id}/is-following`),
     enabled: !!profile?.id,
+    initialData: profile
+      ? {
+          isFollowing: Boolean((profile as AccessibleProfile).isFollowing),
+          requestId: (profile as AccessibleProfile).requestId || null,
+          requestStatus: (profile as AccessibleProfile).requestStatus || null,
+        }
+      : undefined,
   })
+
+  const canViewContent = profile?.canViewContent !== false
 
   const postsQuery = useQuery({
     queryKey: ['user-posts', username],
     queryFn: () => api.getUserPosts(username!),
-    enabled: !!profile?.id,
+    enabled: !!profile?.id && canViewContent,
     retry: false,
   })
 
@@ -91,7 +114,6 @@ export default function UserProfileScreen() {
 
   if (profileQuery.error || !profile) {
     const error: any = profileQuery.error
-    const unavailable = error?.status === 404 || error?.status === 403
     return (
       <SafeAreaView className="flex-1 bg-background">
         <View className="flex-row items-center gap-3 px-4 py-3 border-b border-border">
@@ -99,13 +121,8 @@ export default function UserProfileScreen() {
           <Text className="text-lg font-bold text-text-primary">Profile</Text>
         </View>
         <View className="flex-1 items-center justify-center px-8">
-          <Text className="text-text-primary text-lg font-semibold">{unavailable ? 'Profile unavailable' : 'Could not load profile'}</Text>
-          <Text className="text-text-muted text-center mt-2">
-            {unavailable ? 'This account may be private, blocked, or no longer available.' : error?.message || 'Please try again.'}
-          </Text>
-          {!unavailable && (
-            <Pressable onPress={() => profileQuery.refetch()} className="mt-4 bg-primary px-4 py-2 rounded-xl"><Text className="text-white font-semibold">Retry</Text></Pressable>
-          )}
+          <Text className="text-text-primary text-lg font-semibold">Profile unavailable</Text>
+          <Text className="text-text-muted text-center mt-2">{error?.message || 'This account may be blocked or no longer available.'}</Text>
         </View>
       </SafeAreaView>
     )
@@ -152,13 +169,7 @@ export default function UserProfileScreen() {
                     loading={followMutation.isPending || followQuery.isLoading}
                   >
                     <View className="flex-row items-center gap-1">
-                      {isFollowing ? (
-                        <UserMinus size={16} color="#A1A1AA" />
-                      ) : isRequested ? (
-                        <Clock3 size={16} color="#A1A1AA" />
-                      ) : (
-                        <UserPlus size={16} color="#fff" />
-                      )}
+                      {isFollowing ? <UserMinus size={16} color="#A1A1AA" /> : isRequested ? <Clock3 size={16} color="#A1A1AA" /> : <UserPlus size={16} color="#fff" />}
                       <Text className={`text-sm font-semibold ${isFollowing || isRequested ? 'text-text-secondary' : 'text-white'}`}>
                         {isFollowing ? 'Following' : isRequested ? 'Requested' : 'Follow'}
                       </Text>
@@ -171,12 +182,13 @@ export default function UserProfileScreen() {
                 <View className="flex-row items-center gap-2">
                   <Text className="text-xl font-bold text-text-primary">{profile.displayName || profile.username}</Text>
                   {profile.isVerified && <Badge variant="success">Verified</Badge>}
+                  {profile.isPrivate && <Lock size={14} color="#A1A1AA" />}
                 </View>
                 <Text className="text-text-muted text-sm">@{profile.username}</Text>
               </View>
 
-              {profile.bio && <Text className="text-text-secondary mt-2">{profile.bio}</Text>}
-              {profile.location && (
+              {canViewContent && profile.bio && <Text className="text-text-secondary mt-2">{profile.bio}</Text>}
+              {canViewContent && profile.location && (
                 <View className="flex-row items-center gap-1 mt-3"><MapPin size={14} color="#71717A" /><Text className="text-text-muted text-sm">{profile.location}</Text></View>
               )}
 
@@ -190,9 +202,11 @@ export default function UserProfileScreen() {
           </View>
         }
         ListEmptyComponent={
-          postsQuery.isError
-            ? <View className="items-center py-20 px-6"><Text className="text-text-muted text-center">Posts are not available for this profile.</Text></View>
-            : <View className="items-center py-20"><Text className="text-text-muted">No posts yet</Text></View>
+          !canViewContent
+            ? <View className="items-center py-20 px-6"><Lock size={40} color="#27272A" /><Text className="text-text-primary font-semibold mt-4">This profile is private</Text><Text className="text-text-muted text-center mt-1">Send a follow request to see this user's posts and activity.</Text></View>
+            : postsQuery.isError
+              ? <View className="items-center py-20 px-6"><Text className="text-text-muted text-center">Posts are not available for this profile.</Text></View>
+              : <View className="items-center py-20"><Text className="text-text-muted">No posts yet</Text></View>
         }
       />
     </SafeAreaView>
