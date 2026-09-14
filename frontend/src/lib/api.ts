@@ -23,14 +23,30 @@ api.interceptors.request.use((config) => {
     return config;
 });
 
+const STATIC_USER_SEGMENTS = new Set([
+    'profile',
+    'search',
+    'leaderboard',
+    'privacy',
+    'notification-settings',
+    'appearance-settings',
+    'blocked',
+    'security-stats',
+    'ai-usage',
+    'dashboard',
+    'export-data',
+    'onboarding',
+]);
+
 api.interceptors.response.use(
     (response) => response.data || response,
     async (error) => {
-        const originalRequest = error.config as (typeof error.config & { _retry?: boolean }) | undefined;
+        const originalRequest = error.config as (typeof error.config & { _retry?: boolean; _profileFallback?: boolean }) | undefined;
         const url = originalRequest?.url || '';
+        const status = error.response?.status;
         const isAuthBootstrap = url.includes('/auth/login') || url.includes('/auth/refresh');
 
-        if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthBootstrap) {
+        if (status === 401 && originalRequest && !originalRequest._retry && !isAuthBootstrap) {
             originalRequest._retry = true;
             try {
                 const refreshResponse = await axios.post(
@@ -43,8 +59,7 @@ api.interceptors.response.use(
                     setAccessToken(token);
                     originalRequest.headers = originalRequest.headers ?? ({} as any);
                     (originalRequest.headers as any).Authorization = `Bearer ${token}`;
-                    const retryResponse = await api.request(originalRequest);
-                    return retryResponse;
+                    return api.request(originalRequest);
                 }
             } catch {
                 // Fall through to clear the local in-memory session.
@@ -53,6 +68,25 @@ api.interceptors.response.use(
             setAccessToken(null);
             if (typeof window !== 'undefined') {
                 window.location.href = '/auth/login';
+            }
+        }
+
+        if (
+            originalRequest
+            && originalRequest.method?.toLowerCase() === 'get'
+            && (status === 403 || status === 404)
+        ) {
+            const profileMatch = url.match(/^\/users\/([^/?]+)$/);
+            if (profileMatch && !originalRequest._profileFallback) {
+                const username = decodeURIComponent(profileMatch[1]);
+                if (!STATIC_USER_SEGMENTS.has(username)) {
+                    originalRequest._profileFallback = true;
+                    return api.get(`/profile-access/${encodeURIComponent(username)}`);
+                }
+            }
+
+            if (/^\/users\/[^/?]+\/activity-heatmap(?:\?|$)/.test(url)) {
+                return { success: true, data: [] };
             }
         }
 
