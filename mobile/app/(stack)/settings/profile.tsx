@@ -13,13 +13,18 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { ArrowLeft, Camera } from 'lucide-react-native'
 import * as ImagePicker from 'expo-image-picker'
 import Toast from 'react-native-toast-message'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import * as api from '@/lib/api'
-import { unwrap } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
+
+type PickedAvatar = {
+  uri: string
+  fileName: string
+  mimeType: string
+}
 
 export default function ProfileSettingsScreen() {
   const router = useRouter()
@@ -32,34 +37,33 @@ export default function ProfileSettingsScreen() {
   const [githubUsername, setGithubUsername] = useState(user?.githubUsername || '')
   const [linkedinUrl, setLinkedinUrl] = useState(user?.linkedinUrl || '')
   const [portfolioUrl, setPortfolioUrl] = useState(user?.portfolioUrl || '')
-  const [avatarUri, setAvatarUri] = useState<string | null>(null)
+  const [avatar, setAvatar] = useState<PickedAvatar | null>(null)
 
   const updateMutation = useMutation({
     mutationFn: async () => {
       let avatarUrl: string | undefined
-      if (avatarUri) {
-        const response = await api.uploadFile(avatarUri, 'avatar.jpg', 'image/jpeg')
-        const data = unwrap(response)
-        avatarUrl = data?.url
+      if (avatar) {
+        const uploaded = await api.uploadFile(avatar.uri, avatar.fileName, avatar.mimeType)
+        avatarUrl = uploaded?.url
       }
 
       return api.updateProfile({
-        displayName: displayName || undefined,
-        bio: bio || undefined,
-        location: location || undefined,
-        website: website || undefined,
-        githubUsername: githubUsername || undefined,
-        linkedinUrl: linkedinUrl || undefined,
-        portfolioUrl: portfolioUrl || undefined,
+        displayName: displayName.trim() || undefined,
+        bio: bio.trim() || undefined,
+        location: location.trim() || undefined,
+        website: website.trim() || undefined,
+        githubUsername: githubUsername.trim() || undefined,
+        linkedinUrl: linkedinUrl.trim() || undefined,
+        portfolioUrl: portfolioUrl.trim() || undefined,
         avatar: avatarUrl || undefined,
       })
     },
-    onSuccess: () => {
-      refreshUser()
+    onSuccess: async () => {
+      await refreshUser()
       Toast.show({ type: 'success', text1: 'Profile updated!' })
     },
     onError: (err: any) => {
-      Toast.show({ type: 'error', text1: err.message || 'Failed to update profile' })
+      Toast.show({ type: 'error', text1: err?.message || 'Failed to update profile' })
     },
   })
 
@@ -70,7 +74,16 @@ export default function ProfileSettingsScreen() {
       aspect: [1, 1],
       quality: 0.8,
     })
-    if (!result.canceled) setAvatarUri(result.assets[0].uri)
+
+    if (!result.canceled) {
+      const asset = result.assets[0]
+      const mimeType = asset.mimeType || inferMimeType(asset.fileName || asset.uri)
+      setAvatar({
+        uri: asset.uri,
+        mimeType,
+        fileName: asset.fileName || `avatar.${extensionForMime(mimeType)}`,
+      })
+    }
   }
 
   return (
@@ -82,29 +95,17 @@ export default function ProfileSettingsScreen() {
           </Pressable>
           <Text className="text-xl font-bold text-text-primary">Edit Profile</Text>
         </View>
-        <Button
-          size="sm"
-          onPress={() => updateMutation.mutate()}
-          loading={updateMutation.isPending}
-        >
+        <Button size="sm" onPress={() => updateMutation.mutate()} loading={updateMutation.isPending}>
           Save
         </Button>
       </View>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        <ScrollView
-          className="flex-1"
-          contentContainerStyle={{ padding: 16, gap: 16 }}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Avatar */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+        <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
           <View className="items-center">
             <Pressable onPress={pickAvatar} className="relative">
-              {avatarUri ? (
-                <Image source={{ uri: avatarUri }} className="w-24 h-24 rounded-full" />
+              {avatar ? (
+                <Image source={{ uri: avatar.uri }} className="w-24 h-24 rounded-full" />
               ) : (
                 <Avatar uri={user?.avatar} name={user?.displayName} username={user?.username} size="xl" />
               )}
@@ -114,66 +115,30 @@ export default function ProfileSettingsScreen() {
             </Pressable>
           </View>
 
-          <Input
-            label="Display Name"
-            placeholder="Your display name"
-            value={displayName}
-            onChangeText={setDisplayName}
-          />
-
-          <Input
-            label="Bio"
-            placeholder="Tell us about yourself..."
-            value={bio}
-            onChangeText={setBio}
-            multiline
-            numberOfLines={3}
-            className="min-h-[80px]"
-          />
-
-          <Input
-            label="Location"
-            placeholder="City, Country"
-            value={location}
-            onChangeText={setLocation}
-          />
-
-          <Input
-            label="Website"
-            placeholder="https://your-website.com"
-            value={website}
-            onChangeText={setWebsite}
-            autoCapitalize="none"
-            keyboardType="url"
-          />
-
-          <Input
-            label="GitHub Username"
-            placeholder="your-github-username"
-            value={githubUsername}
-            onChangeText={setGithubUsername}
-            autoCapitalize="none"
-          />
-
-          <Input
-            label="LinkedIn URL"
-            placeholder="https://linkedin.com/in/..."
-            value={linkedinUrl}
-            onChangeText={setLinkedinUrl}
-            autoCapitalize="none"
-            keyboardType="url"
-          />
-
-          <Input
-            label="Portfolio URL"
-            placeholder="https://your-portfolio.com"
-            value={portfolioUrl}
-            onChangeText={setPortfolioUrl}
-            autoCapitalize="none"
-            keyboardType="url"
-          />
+          <Input label="Display Name" placeholder="Your display name" value={displayName} onChangeText={setDisplayName} />
+          <Input label="Bio" placeholder="Tell us about yourself..." value={bio} onChangeText={setBio} multiline numberOfLines={3} className="min-h-[80px]" />
+          <Input label="Location" placeholder="City, Country" value={location} onChangeText={setLocation} />
+          <Input label="Website" placeholder="https://your-website.com" value={website} onChangeText={setWebsite} autoCapitalize="none" keyboardType="url" />
+          <Input label="GitHub Username" placeholder="your-github-username" value={githubUsername} onChangeText={setGithubUsername} autoCapitalize="none" />
+          <Input label="LinkedIn URL" placeholder="https://linkedin.com/in/..." value={linkedinUrl} onChangeText={setLinkedinUrl} autoCapitalize="none" keyboardType="url" />
+          <Input label="Portfolio URL" placeholder="https://your-portfolio.com" value={portfolioUrl} onChangeText={setPortfolioUrl} autoCapitalize="none" keyboardType="url" />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   )
+}
+
+function inferMimeType(value: string) {
+  const lower = value.toLowerCase()
+  if (lower.endsWith('.png')) return 'image/png'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  if (lower.endsWith('.gif')) return 'image/gif'
+  return 'image/jpeg'
+}
+
+function extensionForMime(mime: string) {
+  if (mime === 'image/png') return 'png'
+  if (mime === 'image/webp') return 'webp'
+  if (mime === 'image/gif') return 'gif'
+  return 'jpg'
 }
