@@ -130,6 +130,26 @@ export class PostVisibilityService {
     return posts.filter((post) => visibleIds.has(post.id));
   }
 
+  async attachViewerLikeState<T extends { id: string }>(posts: T[], viewerId?: string): Promise<Array<T & { isLiked: boolean }>> {
+    if (posts.length === 0) return [];
+    if (!viewerId) return posts.map((post) => ({ ...post, isLiked: false }));
+
+    const likes = await this.prisma.like.findMany({
+      where: {
+        userId: viewerId,
+        targetType: 'POST',
+        targetId: { in: posts.map((post) => post.id) },
+      },
+      select: { targetId: true },
+    });
+    const likedIds = new Set(likes.map((like) => like.targetId));
+
+    return posts.map((post) => ({
+      ...post,
+      isLiked: likedIds.has(post.id),
+    }));
+  }
+
   private async evaluateVisibility(
     records: Array<{
       id: string;
