@@ -46,19 +46,21 @@ export class UploadController {
             throw new BadRequestException('Unsupported or invalid file content');
         }
 
-        // Never trust a client-declared MIME type. The uploaded content signature is the source of truth.
         const normalizedFile: Express.Multer.File = {
             ...file,
             mimetype: detectedMime,
         };
 
         try {
-            const url = await this.storageService.uploadFile(normalizedFile, 'uploads', req.user.id);
+            const asset = await this.storageService.uploadFile(normalizedFile, 'uploads', req.user.id);
             return {
                 success: true,
-                url,
-                mimetype: detectedMime,
-                size: file.size,
+                assetId: asset.assetId,
+                url: asset.url,
+                objectKey: asset.objectKey,
+                bucket: asset.bucket,
+                mimetype: asset.mimetype,
+                size: asset.size,
             };
         } catch (error: any) {
             this.logger.error(`Upload controller error: ${error.message}`);
