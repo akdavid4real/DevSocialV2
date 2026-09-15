@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '../generated/prisma';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 
@@ -69,7 +70,7 @@ export class ProjectsService {
             ...(options.status ? { status: options.status.toUpperCase() } : {}),
         };
 
-        const [projects, total, byStatus, totals] = await Promise.all([
+        const [projects, total, byStatus, totals, uniqueViewRows] = await Promise.all([
             this.prisma.project.findMany({
                 where,
                 include: {
@@ -97,6 +98,12 @@ export class ProjectsService {
                 where: { authorId: userId },
                 _sum: { views: true },
             }),
+            this.prisma.$queryRaw<Array<{ count: bigint }>>`
+                SELECT COUNT(*)::bigint AS count
+                FROM public.project_views pv
+                JOIN public."Project" p ON p.id = pv.project_id
+                WHERE p."authorId" = ${userId}::uuid
+            `,
         ]);
 
         return {
@@ -106,6 +113,7 @@ export class ProjectsService {
             lastPage: Math.ceil(total / limit),
             stats: {
                 totalViews: totals._sum.views || 0,
+                recordedDailyViews: Number(uniqueViewRows[0]?.count || 0),
                 byStatus: byStatus.reduce<Record<string, number>>((acc, item) => {
                     acc[item.status] = item._count.status;
                     return acc;
@@ -142,10 +150,9 @@ export class ProjectsService {
         });
     }
 
-    async findOne(id: string) {
-        const project = await this.prisma.project.update({
+    async findOne(id: string, viewerId?: string, visitorKey?: string) {
+        const project = await this.prisma.project.findUnique({
             where: { id },
-            data: { views: { increment: 1 } },
             include: {
                 author: {
                     select: {
@@ -157,10 +164,32 @@ export class ProjectsService {
                     },
                 },
             },
-        }).catch(() => null);
+        });
 
         if (!project || project.visibility !== 'PUBLIC') {
             throw new NotFoundException('Project not found');
+        }
+
+        if (visitorKey) {
+            const inserted = await this.prisma.$transaction(async (tx) => {
+                const count = await tx.$executeRaw`
+                    INSERT INTO public.project_views
+                        (project_id, viewer_id, visitor_key, viewed_on)
+                    VALUES
+                        (${project.id}::uuid, ${viewerId || null}::uuid, ${visitorKey}, CURRENT_DATE)
+                    ON CONFLICT (project_id, visitor_key, viewed_on) DO NOTHING
+                `;
+
+                if (count > 0) {
+                    await tx.project.update({
+                        where: { id: project.id },
+                        data: { views: { increment: 1 } },
+                    });
+                }
+                return count > 0;
+            }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+            if (inserted) project.views += 1;
         }
 
         return project;
@@ -172,10 +201,7 @@ export class ProjectsService {
             select: { authorId: true },
         });
 
-        if (!project) {
-            throw new NotFoundException('Project not found');
-        }
-
+        if (!project) throw new NotFoundException('Project not found');
         if (project.authorId !== userId) {
             throw new ForbiddenException('Only the project owner can update status');
         }
@@ -192,10 +218,7 @@ export class ProjectsService {
             select: { authorId: true },
         });
 
-        if (!project) {
-            throw new NotFoundException('Project not found');
-        }
-
+        if (!project) throw new NotFoundException('Project not found');
         if (project.authorId !== userId) {
             throw new ForbiddenException('Only the project owner can delete this project');
         }

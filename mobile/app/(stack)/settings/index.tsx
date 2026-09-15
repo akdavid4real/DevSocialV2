@@ -9,6 +9,7 @@ import {
   Palette,
   Lock,
   UserX,
+  UserPlus,
   LogOut,
   ChevronRight,
 } from 'lucide-react-native'
@@ -28,6 +29,7 @@ const SETTINGS_SECTIONS = [
       { icon: User, label: 'Profile', description: 'Edit your profile information', route: '/(stack)/settings/profile' },
       { icon: Shield, label: 'Account', description: 'Password, email, delete account', route: '/(stack)/settings/account' },
       { icon: Lock, label: 'Privacy', description: 'Profile visibility and data', route: '/(stack)/settings/privacy' },
+      { icon: UserPlus, label: 'Follow Requests', description: 'Approve people requesting access to your private profile', route: '/(stack)/settings/follow-requests' },
     ],
   },
   {
@@ -62,7 +64,6 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      {/* Header */}
       <View className="flex-row items-center gap-3 px-4 py-3 border-b border-border">
         <Pressable onPress={() => router.back()}>
           <ArrowLeft size={24} color="#FAFAFA" />
@@ -102,7 +103,6 @@ export default function SettingsScreen() {
           </View>
         ))}
 
-        {/* Logout */}
         <Pressable
           onPress={handleLogout}
           className="flex-row items-center gap-3 bg-destructive/10 rounded-2xl px-4 py-3.5"
@@ -111,9 +111,7 @@ export default function SettingsScreen() {
           <Text className="text-destructive font-semibold">Logout</Text>
         </Pressable>
 
-        <Text className="text-text-muted text-xs text-center mt-4">
-          DevSocial v1.0.0
-        </Text>
+        <Text className="text-text-muted text-xs text-center mt-4">DevSocial v1.0.0</Text>
       </ScrollView>
     </SafeAreaView>
   )

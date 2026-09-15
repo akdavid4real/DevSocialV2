@@ -17,95 +17,93 @@ export class AiService {
 
   async summarizePost(userId: string, content: string) {
     const start = Date.now();
-    const user = await this.assertUsageAvailable(userId, 'summaries');
+    const usage = await this.consumeUsage(userId, 'summaries');
     const summary = this.buildSummary(content);
-
-    await this.recordUsage(user.id, 'summaries', user.aiUsage, user.limit);
-    await this.logAssist(user.id, 'post_summarize', content, summary, start);
+    await this.logAssist(userId, 'post_summarize', content, summary, start);
 
     return {
       summary,
-      remainingUsage: Math.max(user.limit - user.used - 1, 0),
-      monthlyLimit: user.limit,
+      remainingUsage: usage.remaining,
+      monthlyLimit: usage.limit,
     };
   }
 
   async explainPost(userId: string, content: string) {
     const start = Date.now();
-    const user = await this.assertUsageAvailable(userId, 'explanations');
+    const usage = await this.consumeUsage(userId, 'explanations');
     const explanation = this.buildExplanation(content);
-
-    await this.recordUsage(user.id, 'explanations', user.aiUsage, user.limit);
-    await this.logAssist(user.id, 'post_explain', content, explanation, start);
+    await this.logAssist(userId, 'post_explain', content, explanation, start);
 
     return {
       explanation,
-      remainingUsage: Math.max(user.limit - user.used - 1, 0),
-      dailyLimit: user.limit,
+      remainingUsage: usage.remaining,
+      monthlyLimit: usage.limit,
     };
   }
 
   async enhanceText(userId: string, content: string, action: EnhancementAction) {
     const start = Date.now();
-    const user = await this.assertUsageAvailable(userId, 'enhancements');
+    const usage = await this.consumeUsage(userId, 'enhancements');
     const enhanced = this.buildEnhancement(content, action);
-
-    await this.recordUsage(user.id, 'enhancements', user.aiUsage, user.limit);
-    await this.logAssist(user.id, `text_enhance_${action}`, content, enhanced, start);
+    await this.logAssist(userId, `text_enhance_${action}`, content, enhanced, start);
 
     return {
       enhanced,
-      remainingUsage: Math.max(user.limit - user.used - 1, 0),
-      monthlyLimit: user.limit,
+      remainingUsage: usage.remaining,
+      monthlyLimit: usage.limit,
     };
   }
 
-  private async assertUsageAvailable(userId: string, key: UsageKey) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        aiUsage: true,
-        isPremium: true,
-      },
-    });
+  private async consumeUsage(userId: string, key: UsageKey) {
+    const lockKey = `ai-usage:${userId}:${key}`;
 
-    if (!user) {
-      throw new BadRequestException('User not found');
-    }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
 
-    const aiUsage = this.normalizeUsage(user.aiUsage);
-    const limit = this.getLimit(key, user.isPremium);
-    const bucket = this.getCurrentBucket(aiUsage, key, limit);
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          aiUsage: true,
+          isPremium: true,
+        },
+      });
 
-    if (bucket.used >= limit) {
-      throw new HttpException(`Monthly limit of ${limit} AI ${key} reached`, HttpStatus.TOO_MANY_REQUESTS);
-    }
+      if (!user) throw new BadRequestException('User not found');
 
-    return {
-      id: user.id,
-      aiUsage,
-      limit,
-      used: bucket.used,
-    };
-  }
+      const aiUsage = this.normalizeUsage(user.aiUsage);
+      const limit = this.getLimit(key, user.isPremium);
+      const bucket = this.getCurrentBucket(aiUsage, key, limit);
+      if (bucket.used >= limit) {
+        throw new HttpException(
+          `Monthly limit of ${limit} AI ${key} reached`,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
 
-  private async recordUsage(userId: string, key: UsageKey, currentUsage: Record<string, any>, limit: number) {
-    const period = this.getCurrentPeriod();
-    const nextUsage = {
-      ...currentUsage,
-      resetsOn: this.getNextResetDate(),
-      [key]: {
-        ...this.getCurrentBucket(currentUsage, key, limit),
-        used: this.getCurrentBucket(currentUsage, key, limit).used + 1,
+      const nextUsed = bucket.used + 1;
+      const nextUsage = {
+        ...aiUsage,
+        resetsOn: this.getNextResetDate(),
+        [key]: {
+          ...bucket,
+          used: nextUsed,
+          limit,
+          period: this.getCurrentPeriod(),
+        },
+      };
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { aiUsage: nextUsage as Prisma.InputJsonValue },
+      });
+
+      return {
         limit,
-        period,
-      },
-    };
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { aiUsage: nextUsage as Prisma.InputJsonValue },
+        remaining: Math.max(limit - nextUsed, 0),
+      };
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
   }
 

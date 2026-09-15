@@ -1,30 +1,16 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
-import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { SecurityEventsService } from './security-events.service';
 import { ReferralsModule } from '../referrals/referrals.module';
+import { PrismaModule } from '../common/prisma/prisma.module';
+import { SupabaseModule } from '../common/supabase/supabase.module';
 
 @Module({
-  imports: [
-    ReferralsModule,
-    PassportModule.register({ defaultStrategy: 'jwt' }),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET') || 'devsocial-default-secret',
-        signOptions: {
-          expiresIn: config.get<string>('JWT_EXPIRES_IN', '7d') as any,
-        },
-      }),
-    }),
-  ],
+  imports: [ReferralsModule, PrismaModule, SupabaseModule],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtAuthGuard],
-  exports: [AuthService, JwtAuthGuard],
+  providers: [AuthService, JwtAuthGuard, SecurityEventsService],
+  exports: [AuthService, JwtAuthGuard, SecurityEventsService],
 })
-export class AuthModule { }
+export class AuthModule {}

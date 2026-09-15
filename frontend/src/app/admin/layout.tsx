@@ -9,15 +9,15 @@ import { ThemeToggle } from "@/components/ui/theme-toggle"
 import {
   LayoutDashboard,
   Users,
-    FileText,
-    Flag,
-    FileCode,
-    Shield,
-    ShieldCheck,
-    BotMessageSquare,
-    Home,
-    LogOut,
-    Bot
+  FileText,
+  Flag,
+  FileCode,
+  Shield,
+  ShieldCheck,
+  BotMessageSquare,
+  Home,
+  LogOut,
+  Bot
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -25,12 +25,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { user, loading, logout } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
+  const canAccessAdmin = user?.role === 'ADMIN' || user?.role === 'MODERATOR'
 
   useEffect(() => {
-    if (!loading && (!user || (user.role !== 'admin' && user.role !== 'moderator'))) {
+    if (!loading && !canAccessAdmin) {
       router.push('/')
     }
-  }, [user, loading, router])
+  }, [canAccessAdmin, loading, router])
 
   if (loading) {
     return (
@@ -40,27 +41,25 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     )
   }
 
-  if (!user || (user.role !== 'admin' && user.role !== 'moderator')) {
-    return null
-  }
+  if (!canAccessAdmin) return null
 
   const navigation = [
     { name: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { name: 'Users', href: '/admin/users', icon: Users },
     { name: 'Posts', href: '/admin/posts', icon: FileText },
     { name: 'Reports', href: '/admin/reports', icon: Flag },
-    { name: 'Roles', href: '/admin/roles', icon: ShieldCheck },
-    { name: 'Bots', href: '/admin/bots', icon: BotMessageSquare },
-    { name: 'AI Logs', href: '/admin/ai-logs', icon: Bot },
-    { name: 'Audit Logs', href: '/admin/audit', icon: FileCode },
+    ...(user?.role === 'ADMIN' ? [
+      { name: 'Roles', href: '/admin/roles', icon: ShieldCheck },
+      { name: 'Bots', href: '/admin/bots', icon: BotMessageSquare },
+      { name: 'AI Logs', href: '/admin/ai-logs', icon: Bot },
+      { name: 'Audit Logs', href: '/admin/audit', icon: FileCode },
+    ] : []),
   ]
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Top Navigation Bar */}
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex h-16 items-center px-6 gap-6">
-          {/* Logo */}
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-red-500 to-orange-500 text-white shadow-lg shadow-red-500/30 text-sm font-bold">
               <Shield className="h-5 w-5" />
@@ -71,23 +70,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           </div>
 
-          {/* Navigation */}
           <nav className="flex gap-1 flex-1">
             {navigation.map((item) => {
               const isActive = pathname === item.href
               const Icon = item.icon
-
               return (
                 <Link
                   key={item.name}
                   href={item.href}
-                  className={`
-                    flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors
-                    ${isActive
-                      ? 'bg-red-500/10 text-red-500'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                    }
-                  `}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    isActive ? 'bg-red-500/10 text-red-500' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
                 >
                   <Icon className="h-4 w-4" />
                   {item.name}
@@ -96,7 +89,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             })}
           </nav>
 
-          {/* Right Actions */}
           <div className="flex items-center gap-3">
             <Link href="/">
               <Button variant="outline" size="sm">
@@ -105,12 +97,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </Button>
             </Link>
             <ThemeToggle />
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={logout}
-              className="text-red-400 hover:text-red-400 hover:bg-red-400/10"
-            >
+            <Button variant="ghost" size="sm" onClick={logout} className="text-red-400 hover:text-red-400 hover:bg-red-400/10">
               <LogOut className="h-4 w-4 mr-2" />
               Logout
             </Button>
@@ -118,10 +105,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </header>
 
-      {/* Main Content - Full Width */}
-      <main className="container mx-auto px-6 py-8 max-w-[1600px]">
-        {children}
-      </main>
+      <main className="container mx-auto px-6 py-8 max-w-[1600px]">{children}</main>
     </div>
   )
 }

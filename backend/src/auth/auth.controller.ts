@@ -1,5 +1,21 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, ForbiddenException, Get, UseGuards, Req, Delete, Param } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthService } from './auth.service';
+import { SecurityEventsService, SecurityEventType } from './security-events.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { VerifyDto } from './dto/verify.dto';
@@ -7,79 +23,229 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 
+const REFRESH_COOKIE = 'devsocial_refresh';
+const MOBILE_CLIENT_HEADER = 'x-client-platform';
+
+function parseCookies(header?: string): Record<string, string> {
+  if (!header) return {};
+  return header.split(';').reduce<Record<string, string>>((cookies, entry) => {
+    const index = entry.indexOf('=');
+    if (index < 0) return cookies;
+    const key = entry.slice(0, index).trim();
+    const value = entry.slice(index + 1).trim();
+    if (key) cookies[key] = decodeURIComponent(value);
+    return cookies;
+  }, {});
+}
+
 @Controller('auth')
 export class AuthController {
-    constructor(private readonly authService: AuthService) { }
+  constructor(
+    private readonly authService: AuthService,
+    private readonly securityEvents: SecurityEventsService,
+  ) {}
 
-    @Post('register')
-    async register(@Body() registerDto: RegisterDto) {
-        return this.authService.register(registerDto);
-    }
+  private isMobileClient(req: any) {
+    return String(req.headers?.[MOBILE_CLIENT_HEADER] || '').toLowerCase() === 'mobile';
+  }
 
-    @Post('login')
-    @HttpCode(HttpStatus.OK)
-    async login(@Body() loginDto: LoginDto) {
-        return this.authService.login(loginDto);
-    }
+  private cookieOptions() {
+    const configured = (process.env.AUTH_COOKIE_SAME_SITE || 'lax').toLowerCase();
+    const sameSite: 'lax' | 'strict' | 'none' =
+      configured === 'none' || configured === 'strict' ? configured : 'lax';
 
-    @Post('verify')
-    @HttpCode(HttpStatus.OK)
-    async verify(@Body() verifyDto: VerifyDto) {
-        return this.authService.verifyOtp(verifyDto);
-    }
+    return {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production' || sameSite === 'none',
+      sameSite,
+      path: '/api/v2/auth',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      ...(process.env.AUTH_COOKIE_DOMAIN ? { domain: process.env.AUTH_COOKIE_DOMAIN } : {}),
+    } as const;
+  }
 
-    @Post('forgot-password')
-    @HttpCode(HttpStatus.OK)
-    async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
-        return this.authService.forgotPassword(forgotPasswordDto);
-    }
+  private setRefreshCookie(res: Response, refreshToken: string) {
+    res.cookie(REFRESH_COOKIE, refreshToken, this.cookieOptions());
+  }
 
-    @Post('dev/verify')
-    @HttpCode(HttpStatus.OK)
-    async devVerify(@Body() body: { email: string }) {
-        if (process.env.NODE_ENV === 'production') {
-            throw new ForbiddenException('Not allowed in production');
-        }
-        return this.authService.devVerifyUser(body.email);
-    }
+  private clearRefreshCookie(res: Response) {
+    const { maxAge: _maxAge, ...options } = this.cookieOptions();
+    res.clearCookie(REFRESH_COOKIE, options);
+  }
 
-    @Get('me')
-    @UseGuards(JwtAuthGuard)
-    async getMe(@Req() req: any) {
-        return this.authService.getMe(req.user.id);
-    }
+  private toPublicSession(result: Awaited<ReturnType<AuthService['login']>>, includeRefreshToken: boolean) {
+    return {
+      user: result.user,
+      session: {
+        access_token: result.session.access_token,
+        expires_at: result.session.expires_at,
+        ...(includeRefreshToken ? { refresh_token: result.session.refresh_token } : {}),
+      },
+    };
+  }
 
-    @Post('change-password')
-    @UseGuards(JwtAuthGuard)
-    @HttpCode(HttpStatus.OK)
-    async changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
-        return this.authService.changePassword(req.user.id, dto);
+  private async recordSecurityEvent(
+    req: any,
+    userId: string,
+    eventType: SecurityEventType,
+    sessionId?: string | null,
+    metadata?: Record<string, unknown>,
+  ) {
+    try {
+      const forwarded = String(req.headers?.['x-forwarded-for'] || '').split(',')[0]?.trim();
+      await this.securityEvents.record({
+        userId,
+        eventType,
+        sessionId,
+        ipAddress: forwarded || req.ip || req.connection?.remoteAddress || null,
+        userAgent: req.headers?.['user-agent'] || null,
+        metadata: {
+          client: this.isMobileClient(req) ? 'mobile' : 'web',
+          ...(metadata || {}),
+        },
+      });
+    } catch {
+      // Security telemetry must never turn a successful auth action into a failure.
     }
+  }
 
-    @Delete('delete-account')
-    @UseGuards(JwtAuthGuard)
-    @HttpCode(HttpStatus.OK)
-    async deleteAccount(@Req() req: any) {
-        return this.authService.deleteAccount(req.user.id);
-    }
+  @Post('register')
+  async register(@Body() registerDto: RegisterDto) {
+    return this.authService.register(registerDto);
+  }
 
-    @Get('sessions')
-    @UseGuards(JwtAuthGuard)
-    async getSessions(@Req() req: any) {
-        return this.authService.getSessions(req.user.id);
-    }
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  async login(
+    @Body() loginDto: LoginDto,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.login(loginDto);
+    const mobile = this.isMobileClient(req);
+    if (!mobile) this.setRefreshCookie(res, result.session.refresh_token);
+    await this.recordSecurityEvent(req, result.user.id, 'LOGIN', null);
+    return this.toPublicSession(result, mobile);
+  }
 
-    @Delete('sessions/:sessionId')
-    @UseGuards(JwtAuthGuard)
-    @HttpCode(HttpStatus.OK)
-    async logoutSession(@Req() req: any, @Param('sessionId') sessionId: string) {
-        return this.authService.logoutSession(req.user.id, sessionId);
-    }
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(
+    @Body('refreshToken') bodyRefreshToken: string | undefined,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const mobile = this.isMobileClient(req);
+    const cookieRefreshToken = parseCookies(req.headers?.cookie)[REFRESH_COOKIE];
+    const refreshToken = mobile ? bodyRefreshToken : cookieRefreshToken;
 
-    @Post('logout-all')
-    @UseGuards(JwtAuthGuard)
-    @HttpCode(HttpStatus.OK)
-    async logoutAll(@Req() req: any) {
-        return this.authService.logoutAll(req.user.id);
+    if (!refreshToken) throw new UnauthorizedException('No refresh session');
+
+    const result = await this.authService.refreshSession(refreshToken);
+    if (!mobile) this.setRefreshCookie(res, result.session.refresh_token);
+    return this.toPublicSession(result, mobile);
+  }
+
+  @Post('verify')
+  @HttpCode(HttpStatus.OK)
+  async verify(@Body() verifyDto: VerifyDto) {
+    return this.authService.verifyOtp(verifyDto);
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(forgotPasswordDto);
+  }
+
+  @Post('dev/verify')
+  @HttpCode(HttpStatus.OK)
+  async devVerify(@Body() body: { email: string }) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('Not allowed in production');
     }
+    return this.authService.devVerifyUser(body.email);
+  }
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  async getMe(@Req() req: any) {
+    return this.authService.getMe(req.user.id);
+  }
+
+  @Get('security-stats')
+  @UseGuards(JwtAuthGuard)
+  async getSecurityStats(@Req() req: any) {
+    const [user, telemetry] = await Promise.all([
+      this.authService.getMe(req.user.id),
+      this.securityEvents.getStats(req.user.id),
+    ]);
+    return {
+      accountCreated: user.createdAt,
+      lastLogin: telemetry.lastLogin,
+      lastPasswordChange: telemetry.lastPasswordChange,
+      totalLogins: telemetry.totalLogins,
+      recentLogins: telemetry.recentLogins,
+      recentEvents: telemetry.recentEvents,
+    };
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
+    const result = await this.authService.changePassword(req.user.id, dto);
+    await this.recordSecurityEvent(req, req.user.id, 'PASSWORD_CHANGED', req.authSessionId);
+    return result;
+  }
+
+  @Delete('delete-account')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async deleteAccount(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    await this.recordSecurityEvent(req, req.user.id, 'ACCOUNT_DELETION_REQUESTED', req.authSessionId);
+    const result = await this.authService.deleteAccount(req.user.id);
+    this.clearRefreshCookie(res);
+    return result;
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async logout(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    await this.recordSecurityEvent(req, req.user.id, 'SESSION_REVOKED', req.authSessionId);
+    const result = await this.authService.logoutCurrent(req.authToken);
+    this.clearRefreshCookie(res);
+    return result;
+  }
+
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  async getSessions(@Req() req: any) {
+    return this.authService.getSessions(req.authToken, req.authSessionId);
+  }
+
+  @Delete('sessions/:sessionId')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async logoutSession(
+    @Req() req: any,
+    @Param('sessionId') sessionId: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.recordSecurityEvent(req, req.user.id, 'SESSION_REVOKED', sessionId);
+    const result = await this.authService.logoutSession(req.authToken, sessionId, req.authSessionId);
+    this.clearRefreshCookie(res);
+    return result;
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async logoutAll(@Req() req: any, @Res({ passthrough: true }) res: Response) {
+    await this.recordSecurityEvent(req, req.user.id, 'ALL_SESSIONS_REVOKED', req.authSessionId);
+    const result = await this.authService.logoutAll(req.authToken);
+    this.clearRefreshCookie(res);
+    return result;
+  }
 }

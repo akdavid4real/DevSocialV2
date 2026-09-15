@@ -1,3 +1,5 @@
+export type UserRole = 'USER' | 'MODERATOR' | 'ADMIN' | 'ANALYTICS';
+
 export interface User {
     id: string;
     username: string;
@@ -8,7 +10,7 @@ export interface User {
     affiliation?: string;
     avatar?: string;
     bannerUrl?: string;
-    role: 'user' | 'moderator' | 'admin' | 'analytics';
+    role: UserRole;
     displayName?: string;
     points: number;
     level: number;
@@ -33,7 +35,8 @@ export interface AuthResponse {
     user: User;
     session: {
         access_token: string;
-        supabase_token: string;
+        refresh_token?: string;
+        expires_at?: number;
     };
 }
 

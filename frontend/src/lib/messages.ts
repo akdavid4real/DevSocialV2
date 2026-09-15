@@ -52,17 +52,11 @@ export interface Conversation {
   }
 }
 
-/**
- * Unwrap API response — handles both { data: X } and plain X
- */
 function unwrap(response: any) {
   if (response?.data !== undefined) return response.data
   return response
 }
 
-/**
- * Fetch all conversations for the current user
- */
 export async function getConversations(): Promise<Conversation[]> {
   try {
     const response = await api.get('/messages/conversations')
@@ -74,12 +68,17 @@ export async function getConversations(): Promise<Conversation[]> {
   }
 }
 
-/**
- * Fetch messages for a specific conversation
- */
-export async function getMessages(conversationId: string): Promise<Message[]> {
+export async function getMessages(
+  conversationId: string,
+  options: { before?: string; limit?: number } = {},
+): Promise<Message[]> {
   try {
-    const response = await api.get(`/messages/${conversationId}`)
+    const response = await api.get(`/messages/${conversationId}`, {
+      params: {
+        limit: Math.min(Math.max(options.limit || 50, 1), 100),
+        ...(options.before ? { before: options.before } : {}),
+      },
+    })
     const data = unwrap(response)
     return Array.isArray(data) ? data : []
   } catch (error) {
@@ -88,9 +87,6 @@ export async function getMessages(conversationId: string): Promise<Message[]> {
   }
 }
 
-/**
- * Send a new message
- */
 export async function sendMessage(receiverId: string, content: string): Promise<Message | null> {
   try {
     const response = await api.post('/messages', { receiverId, content })
@@ -101,9 +97,6 @@ export async function sendMessage(receiverId: string, content: string): Promise<
   }
 }
 
-/**
- * Mark messages as read
- */
 export async function markAsRead(conversationId: string): Promise<void> {
   try {
     await api.patch(`/messages/${conversationId}/read`)
@@ -112,9 +105,6 @@ export async function markAsRead(conversationId: string): Promise<void> {
   }
 }
 
-/**
- * Add or replace the current user's reaction on a message
- */
 export async function addMessageReaction(
   conversationId: string,
   messageId: string,
@@ -125,9 +115,6 @@ export async function addMessageReaction(
   return data?.reactions || []
 }
 
-/**
- * Remove the current user's reaction from a message
- */
 export async function removeMessageReaction(
   conversationId: string,
   messageId: string,
@@ -140,9 +127,6 @@ export async function removeMessageReaction(
   return data?.reactions || []
 }
 
-/**
- * Get or create conversation with a user
- */
 export async function getOrCreateConversation(otherUserId: string): Promise<string | null> {
   try {
     const response = await api.post('/messages/conversations', {
@@ -156,9 +140,6 @@ export async function getOrCreateConversation(otherUserId: string): Promise<stri
   }
 }
 
-/**
- * Subscribe to real-time message updates for a conversation
- */
 export function subscribeToMessages(
   conversationId: string,
   onMessage: (message: Message) => void
@@ -184,9 +165,6 @@ export function subscribeToMessages(
   }
 }
 
-/**
- * Subscribe to all conversation updates for the user
- */
 export function subscribeToConversations(
   userId: string,
   onUpdate: () => void

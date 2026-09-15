@@ -1,17 +1,18 @@
 import {
-  Controller,
-  Get,
-  Patch,
   Body,
-  Param,
-  Query,
-  UseGuards,
-  Request,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
   Logger,
   NotFoundException,
+  Param,
+  Patch,
   Post,
-  Delete,
   Put,
+  Query,
+  Request,
+  UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
@@ -21,6 +22,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { SaveReadyPlayerAvatarDto } from './dto/save-ready-player-avatar.dto';
 import { UpdateAppearanceSettingsDto } from './dto/appearance-settings.dto';
+import { UpdatePrivacySettingsDto } from './dto/privacy-settings.dto';
+import { UpdateNotificationSettingsDto } from './dto/notification-settings.dto';
 
 @Controller('users')
 export class UsersController {
@@ -30,7 +33,7 @@ export class UsersController {
         private readonly usersService: UsersService,
         private readonly postsService: PostsService,
         private readonly prisma: PrismaService,
-    ) { }
+    ) {}
 
     @UseGuards(JwtAuthGuard)
     @Get('profile')
@@ -43,8 +46,8 @@ export class UsersController {
         @Query('period') period?: string,
         @Query('limit') limit?: string,
     ) {
-        this.logger.log(`Leaderboard endpoint hit with period: ${period}, limit: ${limit}`);
-        const limitNum = limit ? parseInt(limit) : 50;
+        const requestedLimit = limit ? parseInt(limit) : 50;
+        const limitNum = Math.min(Math.max(Number.isFinite(requestedLimit) ? requestedLimit : 50, 1), 100);
         const periodFilter = period || 'all';
 
         let dateFilter: Date | undefined;
@@ -57,9 +60,7 @@ export class UsersController {
         }
 
         const users = await this.prisma.user.findMany({
-            where: dateFilter ? {
-                createdAt: { gte: dateFilter },
-            } : undefined,
+            where: dateFilter ? { createdAt: { gte: dateFilter } } : undefined,
             select: {
                 id: true,
                 username: true,
@@ -68,138 +69,120 @@ export class UsersController {
                 level: true,
                 points: true,
             },
-            orderBy: [
-                { points: 'desc' },
-                { level: 'desc' },
-            ],
+            orderBy: [{ points: 'desc' }, { level: 'desc' }],
             take: limitNum,
         });
 
-        this.logger.log(`Found ${users.length} users for leaderboard`);
         return { users };
     }
 
     @Get('search')
     async search(@Query('q') query: string) {
-        this.logger.log(`Search endpoint hit with query: ${query}`);
-        if (!query) return [];
-        return this.usersService.searchUsers(query);
+        if (!query?.trim()) return [];
+        return this.usersService.searchUsers(query.trim());
     }
 
     @UseGuards(JwtAuthGuard)
     @Patch('profile')
-    async updateProfile(@Request() req: any, @Body() updateData: UpdateProfileDto) {
-        this.logger.log(`Updating profile for user ID: ${req.user.id}`);
+    updateProfile(@Request() req: any, @Body() updateData: UpdateProfileDto) {
         return this.usersService.updateProfile(req.user.id, updateData);
     }
 
     @UseGuards(JwtAuthGuard)
     @Post('avatar/ready-player-me')
-    async saveReadyPlayerAvatar(@Request() req: any, @Body() dto: SaveReadyPlayerAvatarDto) {
+    saveReadyPlayerAvatar(@Request() req: any, @Body() dto: SaveReadyPlayerAvatarDto) {
         return this.usersService.saveReadyPlayerAvatar(req.user.id, dto.avatarUrl);
     }
 
     @UseGuards(JwtAuthGuard)
     @Get('appearance-settings')
-    async getAppearanceSettings(@Request() req: any) {
+    getAppearanceSettings(@Request() req: any) {
         return this.usersService.getAppearanceSettings(req.user.id);
     }
 
     @UseGuards(JwtAuthGuard)
     @Put('appearance-settings')
-    async updateAppearanceSettings(@Request() req: any, @Body() dto: UpdateAppearanceSettingsDto) {
+    updateAppearanceSettings(@Request() req: any, @Body() dto: UpdateAppearanceSettingsDto) {
         return this.usersService.updateAppearanceSettings(req.user.id, dto);
     }
 
     @UseGuards(JwtAuthGuard)
     @Get('privacy')
-    async getPrivacySettings(@Request() req: any) {
+    getPrivacySettings(@Request() req: any) {
         return this.usersService.getPrivacySettings(req.user.id);
     }
 
     @UseGuards(JwtAuthGuard)
     @Patch('privacy')
-    async updatePrivacySettings(@Request() req: any, @Body() updateData: { privacySettings: any }) {
-        return this.usersService.updatePrivacySettings(req.user.id, updateData.privacySettings);
+    updatePrivacySettings(@Request() req: any, @Body() dto: UpdatePrivacySettingsDto) {
+        return this.usersService.updatePrivacySettings(req.user.id, dto.privacySettings);
     }
 
     @UseGuards(JwtAuthGuard)
     @Get('notification-settings')
-    async getNotificationSettings(@Request() req: any) {
+    getNotificationSettings(@Request() req: any) {
         return this.usersService.getNotificationSettings(req.user.id);
     }
 
     @UseGuards(JwtAuthGuard)
     @Patch('notification-settings')
-    async updateNotificationSettings(@Request() req: any, @Body() updateData: { notificationSettings: any }) {
-        return this.usersService.updateNotificationSettings(req.user.id, updateData.notificationSettings);
+    updateNotificationSettings(@Request() req: any, @Body() dto: UpdateNotificationSettingsDto) {
+        return this.usersService.updateNotificationSettings(req.user.id, dto.notificationSettings);
     }
 
     @UseGuards(JwtAuthGuard)
     @Get('blocked')
-    async getBlockedUsers(@Request() req: any) {
+    getBlockedUsers(@Request() req: any) {
         return this.usersService.getBlockedUsers(req.user.id);
     }
 
     @UseGuards(JwtAuthGuard)
     @Post('block/:userId')
-    async blockUser(@Request() req: any, @Param('userId') userId: string) {
+    blockUser(@Request() req: any, @Param('userId') userId: string) {
         return this.usersService.blockUser(req.user.id, userId);
     }
 
     @UseGuards(JwtAuthGuard)
     @Delete('unblock/:userId')
-    async unblockUser(@Request() req: any, @Param('userId') userId: string) {
+    unblockUser(@Request() req: any, @Param('userId') userId: string) {
         return this.usersService.unblockUser(req.user.id, userId);
     }
 
     @UseGuards(JwtAuthGuard)
     @Get('security-stats')
-    async getSecurityStats(@Request() req: any) {
+    getSecurityStats(@Request() req: any) {
         return this.usersService.getSecurityStats(req.user.id);
     }
 
     @UseGuards(JwtAuthGuard)
     @Get('ai-usage')
-    async getAiUsage(@Request() req: any) {
+    getAiUsage(@Request() req: any) {
         return this.usersService.getAiUsage(req.user.id);
     }
 
     @UseGuards(JwtAuthGuard)
     @Get('dashboard')
-    async getDashboard(@Request() req: any, @Query('period') period?: string) {
+    getDashboard(@Request() req: any, @Query('period') period?: string) {
         return this.usersService.getDashboard(req.user.id, period);
     }
 
     @UseGuards(JwtAuthGuard)
     @Post('export-data')
-    async exportData(@Request() req: any) {
+    exportData(@Request() req: any) {
         return this.usersService.exportUserData(req.user.id);
     }
 
     @Get(':username')
-    async getProfileByUsername(@Param('username') username: string) {
-        return this.usersService.findByUsername(username);
+    @UseGuards(OptionalJwtAuthGuard)
+    async getProfileByUsername(@Param('username') username: string, @Request() req: any) {
+        const visibleUser = await this.resolveVisibleUser(username, req.user?.id);
+        return this.usersService.findByUsername(visibleUser.username);
     }
 
     @Get(':username/posts')
     @UseGuards(OptionalJwtAuthGuard)
-    async getPostsByUsername(
-        @Param('username') username: string,
-        @Request() req: any,
-    ) {
-        this.logger.log(`Fetching posts for user: ${username}`);
-        
-        if (req.user && req.user.username?.toLowerCase() === username.toLowerCase()) {
-            this.logger.log(`✓ Using authenticated user ID: ${req.user.id}`);
-            return this.postsService.findAllByUser(req.user.id);
-        }
-        
-        const user = await this.usersService.findByUsername(username);
-        if (!user) {
-            throw new NotFoundException(`User @${username} not found`);
-        }
-        this.logger.log(`✓ Found user ID: ${user.id} for username: ${username}`);
+    async getPostsByUsername(@Param('username') username: string, @Request() req: any) {
+        const user = await this.resolveVisibleUser(username, req.user?.id);
         return this.postsService.findAllByUser(user.id);
     }
 
@@ -211,33 +194,23 @@ export class UsersController {
         @Query('limit') limit?: string,
         @Request() req?: any,
     ) {
-        const pageNum = page ? parseInt(page) : 1;
-        const limitNum = limit ? parseInt(limit) : 20;
-        const skip = (pageNum - 1) * limitNum;
+        const user = await this.resolveVisibleUser(username, req?.user?.id, true);
+        const { pageNum, limitNum, skip } = this.pagination(page, limit);
 
-        let userId: string;
-        if (req?.user && req.user.username?.toLowerCase() === username.toLowerCase()) {
-            userId = req.user.id;
-        } else {
-            const user = await this.usersService.findByUsername(username);
-            userId = user.id;
-        }
-
-        const activities = await this.prisma.activity.findMany({
-            where: { userId: userId },
-            orderBy: { createdAt: 'desc' },
-            skip,
-            take: limitNum,
-        });
+        const [activities, total] = await Promise.all([
+            this.prisma.activity.findMany({
+                where: { userId: user.id },
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limitNum,
+            }),
+            this.prisma.activity.count({ where: { userId: user.id } }),
+        ]);
 
         return {
             success: true,
             data: activities,
-            pagination: {
-                page: pageNum,
-                limit: limitNum,
-                total: await this.prisma.activity.count({ where: { userId: userId } }),
-            },
+            pagination: { page: pageNum, limit: limitNum, total },
         };
     }
 
@@ -249,80 +222,17 @@ export class UsersController {
         @Query('limit') limit?: string,
         @Request() req?: any,
     ) {
-        const pageNum = page ? parseInt(page) : 1;
-        const limitNum = limit ? parseInt(limit) : 20;
-        const skip = (pageNum - 1) * limitNum;
-
-        let userId: string;
-        if (req?.user && req.user.username?.toLowerCase() === username.toLowerCase()) {
-            userId = req.user.id;
-        } else {
-            const user = await this.usersService.findByUsername(username);
-            userId = user.id;
-        }
+        const user = await this.resolveVisibleUser(username, req?.user?.id);
+        const { limitNum, skip } = this.pagination(page, limit);
 
         const likes = await this.prisma.like.findMany({
-            where: {
-                userId: userId,
-                targetType: 'POST',
-            },
+            where: { userId: user.id, targetType: 'POST' },
             orderBy: { createdAt: 'desc' },
             skip,
             take: limitNum,
         });
 
-        const postIds = likes.map(like => like.targetId);
-        const posts = await this.prisma.post.findMany({
-            where: { id: { in: postIds } },
-            include: {
-                author: {
-                    select: {
-                        id: true,
-                        username: true,
-                        displayName: true,
-                        avatar: true,
-                        level: true,
-                    },
-                },
-                _count: {
-                    select: {
-                        comments: true,
-                    },
-                },
-            },
-        });
-
-        const likeCounts = await this.prisma.like.groupBy({
-            by: ['targetId'],
-            where: {
-                targetId: { in: postIds },
-                targetType: 'POST',
-            },
-            _count: true,
-        });
-        const likeCountMap = new Map(likeCounts.map(lc => [lc.targetId, lc._count]));
-
-        let userLikes: string[] = [];
-        if (req?.user?.id) {
-            const currentUserLikes = await this.prisma.like.findMany({
-                where: {
-                    userId: req.user.id,
-                    targetId: { in: postIds },
-                    targetType: 'POST',
-                },
-                select: { targetId: true },
-            });
-            userLikes = currentUserLikes.map(like => like.targetId);
-        }
-
-        const postsWithLikeStatus = posts.map(post => ({
-            ...post,
-            isLiked: userLikes.includes(post.id),
-            likesCount: likeCountMap.get(post.id) || 0,
-            commentsCount: post._count.comments,
-        }));
-
-        return postsWithLikeStatus;
+        return this.hydratePosts(likes.map((like) => like.targetId), req?.user?.id);
     }
 
     @UseGuards(OptionalJwtAuthGuard)
@@ -333,180 +243,77 @@ export class UsersController {
         @Query('limit') limit?: string,
         @Request() req?: any,
     ) {
-        const pageNum = page ? parseInt(page) : 1;
-        const limitNum = limit ? parseInt(limit) : 20;
-        const skip = (pageNum - 1) * limitNum;
-
-        let userId: string;
-        if (req?.user && req.user.username?.toLowerCase() === username.toLowerCase()) {
-            userId = req.user.id;
-        } else {
-            const user = await this.usersService.findByUsername(username);
-            userId = user.id;
-        }
+        const user = await this.resolveVisibleUser(username, req?.user?.id);
+        const { limitNum, skip } = this.pagination(page, limit);
 
         const comments = await this.prisma.comment.findMany({
-            where: { authorId: userId },
+            where: { authorId: user.id },
             orderBy: { createdAt: 'desc' },
             distinct: ['postId'],
             skip,
             take: limitNum,
-            select: {
-                postId: true,
-                createdAt: true,
-            },
+            select: { postId: true },
         });
 
-        const postIds = comments.map(comment => comment.postId);
-        const posts = await this.prisma.post.findMany({
-            where: { id: { in: postIds } },
-            include: {
-                author: {
-                    select: {
-                        id: true,
-                        username: true,
-                        displayName: true,
-                        avatar: true,
-                        level: true,
-                    },
-                },
-                _count: {
-                    select: {
-                        comments: true,
-                    },
-                },
-            },
-        });
-
-        const likeCounts = await this.prisma.like.groupBy({
-            by: ['targetId'],
-            where: {
-                targetId: { in: postIds },
-                targetType: 'POST',
-            },
-            _count: true,
-        });
-        const likeCountMap = new Map(likeCounts.map(lc => [lc.targetId, lc._count]));
-
-        let userLikes: string[] = [];
-        if (req?.user?.id) {
-            const currentUserLikes = await this.prisma.like.findMany({
-                where: {
-                    userId: req.user.id,
-                    targetId: { in: postIds },
-                    targetType: 'POST',
-                },
-                select: { targetId: true },
-            });
-            userLikes = currentUserLikes.map(like => like.targetId);
-        }
-
-        const postsWithLikeStatus = posts.map(post => ({
-            ...post,
-            isLiked: userLikes.includes(post.id),
-            likesCount: likeCountMap.get(post.id) || 0,
-            commentsCount: post._count.comments,
-        }));
-
-        return postsWithLikeStatus;
+        return this.hydratePosts(comments.map((comment) => comment.postId), req?.user?.id);
     }
 
     @UseGuards(OptionalJwtAuthGuard)
     @Get(':username/stats')
-    async getUserStats(
-        @Param('username') username: string,
-        @Request() req?: any,
-    ) {
-        let userId: string;
-        if (req?.user && req.user.username?.toLowerCase() === username.toLowerCase()) {
-            userId = req.user.id;
-        } else {
-            const user = await this.usersService.findByUsername(username);
-            userId = user.id;
-        }
+    async getUserStats(@Param('username') username: string, @Request() req?: any) {
+        const user = await this.resolveVisibleUser(username, req?.user?.id);
+        const ownedPostIds = await this.prisma.post.findMany({
+            where: { authorId: user.id },
+            select: { id: true },
+        });
 
         const [postsCount, commentsCount, likesGiven, likesReceived] = await Promise.all([
-            this.prisma.post.count({ where: { authorId: userId } }),
-            this.prisma.comment.count({ where: { authorId: userId } }),
-            this.prisma.like.count({ where: { userId: userId } }),
+            this.prisma.post.count({ where: { authorId: user.id } }),
+            this.prisma.comment.count({ where: { authorId: user.id } }),
+            this.prisma.like.count({ where: { userId: user.id } }),
             this.prisma.like.count({
                 where: {
                     targetType: 'POST',
-                    targetId: {
-                        in: (await this.prisma.post.findMany({
-                            where: { authorId: userId },
-                            select: { id: true },
-                        })).map(p => p.id),
-                    },
+                    targetId: { in: ownedPostIds.map((post) => post.id) },
                 },
             }),
         ]);
 
         return {
             success: true,
-            data: {
-                postsCount,
-                commentsCount,
-                likesGiven,
-                likesReceived,
-            },
+            data: { postsCount, commentsCount, likesGiven, likesReceived },
         };
     }
 
     @UseGuards(OptionalJwtAuthGuard)
     @Get(':username/activity-heatmap')
-    async getActivityHeatmap(
-        @Param('username') username: string,
-        @Request() req?: any,
-    ) {
-        let userId: string;
-        if (req?.user && req.user.username?.toLowerCase() === username.toLowerCase()) {
-            userId = req.user.id;
-        } else {
-            const user = await this.usersService.findByUsername(username);
-            userId = user.id;
-        }
-
+    async getActivityHeatmap(@Param('username') username: string, @Request() req?: any) {
+        const user = await this.resolveVisibleUser(username, req?.user?.id, true);
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - 84);
 
         const [posts, comments, likes] = await Promise.all([
             this.prisma.post.findMany({
-                where: {
-                    authorId: userId,
-                    createdAt: { gte: startDate },
-                },
+                where: { authorId: user.id, createdAt: { gte: startDate } },
                 select: { createdAt: true },
             }),
             this.prisma.comment.findMany({
-                where: {
-                    authorId: userId,
-                    createdAt: { gte: startDate },
-                },
+                where: { authorId: user.id, createdAt: { gte: startDate } },
                 select: { createdAt: true },
             }),
             this.prisma.like.findMany({
-                where: {
-                    userId: userId,
-                    createdAt: { gte: startDate },
-                },
+                where: { userId: user.id, createdAt: { gte: startDate } },
                 select: { createdAt: true },
             }),
         ]);
 
         const activityMap = new Map<string, number>();
-
-        [...posts, ...comments, ...likes].forEach(item => {
+        [...posts, ...comments, ...likes].forEach((item) => {
             const date = item.createdAt.toISOString().split('T')[0];
             activityMap.set(date, (activityMap.get(date) || 0) + 1);
         });
 
-        const activities = Array.from(activityMap.entries()).map(([date, count]) => ({
-            date,
-            count,
-        }));
-
-        return activities;
+        return Array.from(activityMap.entries()).map(([date, count]) => ({ date, count }));
     }
 
     @UseGuards(JwtAuthGuard)
@@ -517,41 +324,27 @@ export class UsersController {
         @Request() req: any,
     ) {
         if (req.user.username?.toLowerCase() !== username.toLowerCase()) {
-            return { success: false, message: 'Unauthorized' };
+            throw new ForbiddenException('Unauthorized');
         }
 
         const user = await this.prisma.user.findUnique({
             where: { id: req.user.id },
             select: { pinnedPosts: true },
         });
-
-        if (!user) {
-            return { success: false, message: 'User not found' };
-        }
-
-        if (user.pinnedPosts.includes(postId)) {
-            return { success: false, message: 'Post already pinned' };
-        }
-
-        if (user.pinnedPosts.length >= 3) {
-            return { success: false, message: 'Maximum 3 posts can be pinned' };
-        }
+        if (!user) throw new NotFoundException('User not found');
+        if (user.pinnedPosts.includes(postId)) return { success: false, message: 'Post already pinned' };
+        if (user.pinnedPosts.length >= 3) return { success: false, message: 'Maximum 3 posts can be pinned' };
 
         const post = await this.prisma.post.findFirst({
             where: { id: postId, authorId: req.user.id },
+            select: { id: true },
         });
-
-        if (!post) {
-            return { success: false, message: 'Post not found or unauthorized' };
-        }
+        if (!post) throw new NotFoundException('Post not found');
 
         await this.prisma.user.update({
             where: { id: req.user.id },
-            data: {
-                pinnedPosts: [...user.pinnedPosts, postId],
-            },
+            data: { pinnedPosts: [...user.pinnedPosts, postId] },
         });
-
         return { success: true, message: 'Post pinned successfully' };
     }
 
@@ -563,105 +356,134 @@ export class UsersController {
         @Request() req: any,
     ) {
         if (req.user.username?.toLowerCase() !== username.toLowerCase()) {
-            return { success: false, message: 'Unauthorized' };
+            throw new ForbiddenException('Unauthorized');
         }
 
         const user = await this.prisma.user.findUnique({
             where: { id: req.user.id },
             select: { pinnedPosts: true },
         });
-
-        if (!user) {
-            return { success: false, message: 'User not found' };
-        }
+        if (!user) throw new NotFoundException('User not found');
 
         await this.prisma.user.update({
             where: { id: req.user.id },
-            data: {
-                pinnedPosts: user.pinnedPosts.filter(id => id !== postId),
-            },
+            data: { pinnedPosts: user.pinnedPosts.filter((id) => id !== postId) },
         });
-
         return { success: true, message: 'Post unpinned successfully' };
     }
 
     @UseGuards(OptionalJwtAuthGuard)
     @Get(':username/pinned-posts')
-    async getPinnedPosts(
-        @Param('username') username: string,
-        @Request() req?: any,
-    ) {
-        let userId: string;
-        if (req?.user && req.user.username?.toLowerCase() === username.toLowerCase()) {
-            userId = req.user.id;
-        } else {
-            const user = await this.usersService.findByUsername(username);
-            userId = user.id;
-        }
-
+    async getPinnedPosts(@Param('username') username: string, @Request() req?: any) {
+        const visibleUser = await this.resolveVisibleUser(username, req?.user?.id);
         const user = await this.prisma.user.findUnique({
-            where: { id: userId },
+            where: { id: visibleUser.id },
             select: { pinnedPosts: true },
         });
+        if (!user || user.pinnedPosts.length === 0) return [];
 
-        if (!user || user.pinnedPosts.length === 0) {
-            return [];
-        }
+        const posts = await this.hydratePosts(user.pinnedPosts, req?.user?.id);
+        return user.pinnedPosts
+            .map((pinnedId) => posts.find((post: any) => post.id === pinnedId))
+            .filter(Boolean)
+            .map((post: any) => ({ ...post, isPinned: true }));
+    }
 
-        const posts = await this.prisma.post.findMany({
-            where: { id: { in: user.pinnedPosts } },
-            include: {
-                author: {
-                    select: {
-                        id: true,
-                        username: true,
-                        displayName: true,
-                        avatar: true,
-                        level: true,
-                    },
-                },
-                _count: {
-                    select: {
-                        comments: true,
-                    },
-                },
-            },
+    private pagination(page?: string, limit?: string) {
+        const rawPage = page ? parseInt(page) : 1;
+        const rawLimit = limit ? parseInt(limit) : 20;
+        const pageNum = Math.max(Number.isFinite(rawPage) ? rawPage : 1, 1);
+        const limitNum = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : 20, 1), 100);
+        return { pageNum, limitNum, skip: (pageNum - 1) * limitNum };
+    }
+
+    private normalizeSettings(value: unknown): Record<string, unknown> {
+        return value && typeof value === 'object' && !Array.isArray(value)
+            ? value as Record<string, unknown>
+            : {};
+    }
+
+    private async resolveVisibleUser(username: string, viewerId?: string, requireActivityVisibility = false) {
+        const user = await this.prisma.user.findFirst({
+            where: { username: { equals: username, mode: 'insensitive' } },
+            select: { id: true, username: true, privacySettings: true },
         });
+        if (!user) throw new NotFoundException(`User @${username} not found`);
+        if (viewerId === user.id) return user;
 
-        const likeCounts = await this.prisma.like.groupBy({
-            by: ['targetId'],
-            where: {
-                targetId: { in: user.pinnedPosts },
-                targetType: 'POST',
-            },
-            _count: true,
-        });
-        const likeCountMap = new Map(likeCounts.map(lc => [lc.targetId, lc._count]));
-
-        let userLikes: string[] = [];
-        if (req?.user?.id) {
-            const currentUserLikes = await this.prisma.like.findMany({
+        if (viewerId) {
+            const block = await this.prisma.block.findFirst({
                 where: {
-                    userId: req.user.id,
-                    targetId: { in: user.pinnedPosts },
-                    targetType: 'POST',
+                    OR: [
+                        { blockerId: viewerId, blockedId: user.id },
+                        { blockerId: user.id, blockedId: viewerId },
+                    ],
                 },
-                select: { targetId: true },
+                select: { id: true },
             });
-            userLikes = currentUserLikes.map(like => like.targetId);
+            if (block) throw new NotFoundException(`User @${username} not found`);
         }
 
-        const orderedPosts = user.pinnedPosts
-            .map(pinnedId => posts.find(p => p.id === pinnedId))
-            .filter((post): post is NonNullable<typeof post> => post !== undefined)
-            .map(post => ({
-                ...post,
-                isLiked: userLikes.includes(post.id),
-                likesCount: likeCountMap.get(post.id) || 0,
-                commentsCount: post._count.comments,
-                isPinned: true,
-            }));
+        const settings = this.normalizeSettings(user.privacySettings);
+        if (requireActivityVisibility && settings.showActivityStatus === false) {
+            throw new NotFoundException('Activity is private');
+        }
 
-        return orderedPosts;
+        if (String(settings.profileVisibility || 'PUBLIC').toUpperCase() === 'PRIVATE') {
+            if (!viewerId) throw new NotFoundException(`User @${username} not found`);
+            const follows = await this.prisma.follow.findUnique({
+                where: {
+                    followerId_followingId: {
+                        followerId: viewerId,
+                        followingId: user.id,
+                    },
+                },
+                select: { id: true },
+            });
+            if (!follows) throw new NotFoundException(`User @${username} not found`);
+        }
+
+        return user;
+    }
+
+    private async hydratePosts(postIds: string[], viewerId?: string) {
+        if (postIds.length === 0) return [];
+        const [posts, likeCounts, viewerLikes] = await Promise.all([
+            this.prisma.post.findMany({
+                where: { id: { in: postIds }, status: 'ACTIVE' },
+                include: {
+                    author: {
+                        select: {
+                            id: true,
+                            username: true,
+                            displayName: true,
+                            avatar: true,
+                            level: true,
+                        },
+                    },
+                    _count: { select: { comments: true } },
+                },
+            }),
+            this.prisma.like.groupBy({
+                by: ['targetId'],
+                where: { targetId: { in: postIds }, targetType: 'POST' },
+                _count: true,
+            }),
+            viewerId
+                ? this.prisma.like.findMany({
+                    where: { userId: viewerId, targetId: { in: postIds }, targetType: 'POST' },
+                    select: { targetId: true },
+                })
+                : Promise.resolve([]),
+        ]);
+
+        const likeCountMap = new Map(likeCounts.map((like) => [like.targetId, like._count]));
+        const viewerLikeSet = new Set(viewerLikes.map((like) => like.targetId));
+        return posts.map((post) => ({
+            ...post,
+            isLiked: viewerLikeSet.has(post.id),
+            likesCount: likeCountMap.get(post.id) || 0,
+            commentsCount: post._count.comments,
+        }));
     }
 }

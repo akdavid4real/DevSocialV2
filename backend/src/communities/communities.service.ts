@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { PostsService } from '../posts/posts.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
 import { CreateCommunityPostDto } from './dto/create-community-post.dto';
+import { CommunityAccessService } from './community-access.service';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -11,9 +12,10 @@ export class CommunitiesService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly postsService: PostsService,
+        private readonly accessService: CommunityAccessService,
     ) {}
 
-    async findAll(options: { page: number; limit: number; search?: string; category?: string }) {
+    async findAll(options: { page: number; limit: number; search?: string; category?: string; viewerId?: string }) {
         const page = Math.max(options.page || 1, 1);
         const limit = Math.min(Math.max(options.limit || 12, 1), 50);
         const skip = (page - 1) * limit;
@@ -35,12 +37,13 @@ export class CommunitiesService {
             this.prisma.community.findMany({
                 where,
                 include: {
-                    members: {
-                        select: {
-                            userId: true,
-                            role: true,
-                        },
-                    },
+                    members: options.viewerId
+                        ? {
+                            where: { userId: options.viewerId },
+                            select: { userId: true, role: true },
+                        }
+                        : false,
+                    _count: { select: { members: true } },
                 },
                 orderBy: [{ memberCount: 'desc' }, { createdAt: 'desc' }],
                 skip,
@@ -50,7 +53,14 @@ export class CommunitiesService {
         ]);
 
         return {
-            communities: communities.map((community) => this.serializeCommunity(community)),
+            communities: communities.map((community: any) => ({
+                ...community,
+                memberCount: community._count?.members ?? community.memberCount,
+                isJoined: Boolean(options.viewerId && community.members?.some((member: any) => member.userId === options.viewerId)),
+                members: community.members || [],
+                memberIds: (community.members || []).map((member: any) => member.userId),
+                _count: undefined,
+            })),
             total,
             page,
             lastPage: Math.ceil(total / limit),
@@ -79,10 +89,7 @@ export class CommunitiesService {
             },
             include: {
                 members: {
-                    select: {
-                        userId: true,
-                        role: true,
-                    },
+                    select: { userId: true, role: true },
                 },
             },
         });
@@ -90,20 +97,50 @@ export class CommunitiesService {
         return this.serializeCommunity(community);
     }
 
-    async findOne(idOrSlug: string) {
-        const community = await this.getCommunity(idOrSlug);
-        return this.serializeCommunity(community);
+    async findOne(idOrSlug: string, viewerId?: string) {
+        const community = await this.getCommunity(idOrSlug, viewerId, true);
+        const isMember = Boolean(viewerId && community.members.some((member) => member.userId === viewerId));
+        const accessState = viewerId
+            ? await this.accessService.getRequestState(viewerId, community.id)
+            : { requestId: null, requestStatus: null, inviteId: null, inviteStatus: null };
+
+        const serialized = this.serializeCommunity(community);
+        if (community.isPrivate && !isMember) {
+            serialized.members = [];
+            serialized.memberIds = [];
+        }
+
+        return {
+            ...serialized,
+            isJoined: isMember,
+            canViewContent: !community.isPrivate || isMember,
+            ...accessState,
+        };
     }
 
     async toggleMembership(userId: string, idOrSlug: string) {
-        const community = await this.getCommunity(idOrSlug);
+        const community = await this.getCommunity(idOrSlug, userId, true);
         const existingMember = community.members.find((member) => member.userId === userId);
 
         if (existingMember?.role === 'CREATOR') {
             return {
                 isJoined: true,
+                requested: false,
                 memberCount: community.memberCount,
                 community: this.serializeCommunity(community),
+            };
+        }
+
+        if (community.isPrivate && !existingMember) {
+            const request = await this.accessService.requestJoin(userId, community.id);
+            return {
+                ...request,
+                memberCount: community.memberCount,
+                community: {
+                    ...this.serializeCommunity(community),
+                    members: [],
+                    memberIds: [],
+                },
             };
         }
 
@@ -117,8 +154,8 @@ export class CommunitiesService {
                         },
                     },
                 }),
-                this.prisma.community.update({
-                    where: { id: community.id },
+                this.prisma.community.updateMany({
+                    where: { id: community.id, memberCount: { gt: 0 } },
                     data: { memberCount: { decrement: 1 } },
                 }),
             ]);
@@ -137,17 +174,18 @@ export class CommunitiesService {
             ]);
         }
 
-        const updatedCommunity = await this.getCommunity(community.id);
+        const updatedCommunity = await this.getCommunity(community.id, userId, true);
 
         return {
             isJoined: !existingMember,
+            requested: false,
             memberCount: updatedCommunity.memberCount,
             community: this.serializeCommunity(updatedCommunity),
         };
     }
 
-    async findPosts(idOrSlug: string, page = 1, limit = 10) {
-        const community = await this.getCommunity(idOrSlug);
+    async findPosts(idOrSlug: string, page = 1, limit = 10, viewerId?: string) {
+        const community = await this.getCommunity(idOrSlug, viewerId);
         const currentPage = Math.max(page || 1, 1);
         const take = Math.min(Math.max(limit || 10, 1), 50);
         const skip = (currentPage - 1) * take;
@@ -170,9 +208,7 @@ export class CommunitiesService {
                         },
                     },
                     _count: {
-                        select: {
-                            comments: true,
-                        },
+                        select: { comments: true },
                     },
                 },
                 orderBy: { createdAt: 'desc' },
@@ -188,17 +224,30 @@ export class CommunitiesService {
         ]);
 
         const postIds = posts.map((post) => post.id);
-        const likeCounts = postIds.length > 0
-            ? await this.prisma.like.groupBy({
-                by: ['targetId'],
-                where: {
-                    targetId: { in: postIds },
-                    targetType: 'POST',
-                },
-                _count: true,
-            })
-            : [];
+        const [likeCounts, viewerLikes] = await Promise.all([
+            postIds.length > 0
+                ? this.prisma.like.groupBy({
+                    by: ['targetId'],
+                    where: {
+                        targetId: { in: postIds },
+                        targetType: 'POST',
+                    },
+                    _count: true,
+                })
+                : [],
+            viewerId && postIds.length > 0
+                ? this.prisma.like.findMany({
+                    where: {
+                        userId: viewerId,
+                        targetId: { in: postIds },
+                        targetType: 'POST',
+                    },
+                    select: { targetId: true },
+                })
+                : [],
+        ]);
         const likeCountMap = new Map(likeCounts.map((like) => [like.targetId, like._count]));
+        const viewerLikeIds = new Set(viewerLikes.map((like) => like.targetId));
 
         return {
             posts: posts.map((post) => ({
@@ -206,6 +255,7 @@ export class CommunitiesService {
                 likesCount: likeCountMap.get(post.id) || 0,
                 commentsCount: post._count.comments,
                 viewsCount: post.viewsCount || 0,
+                isLiked: viewerLikeIds.has(post.id),
             })),
             total,
             page: currentPage,
@@ -214,7 +264,7 @@ export class CommunitiesService {
     }
 
     async createPost(userId: string, idOrSlug: string, dto: CreateCommunityPostDto) {
-        const community = await this.getCommunity(idOrSlug);
+        const community = await this.getCommunity(idOrSlug, userId, true);
         const member = community.members.find((communityMember) => communityMember.userId === userId);
 
         if (!member) {
@@ -227,22 +277,24 @@ export class CommunitiesService {
         });
     }
 
-    private async getCommunity(idOrSlug: string) {
+    private async getCommunity(idOrSlug: string, viewerId?: string, allowPrivateLookup = false) {
         const community = await this.prisma.community.findFirst({
             where: UUID_REGEX.test(idOrSlug)
                 ? { id: idOrSlug }
                 : { slug: idOrSlug },
             include: {
                 members: {
-                    select: {
-                        userId: true,
-                        role: true,
-                    },
+                    select: { userId: true, role: true },
                 },
             },
         });
 
         if (!community) {
+            throw new NotFoundException('Community not found');
+        }
+
+        const isMember = Boolean(viewerId && community.members.some((member) => member.userId === viewerId));
+        if (community.isPrivate && !isMember && !allowPrivateLookup) {
             throw new NotFoundException('Community not found');
         }
 

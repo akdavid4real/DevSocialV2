@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -12,13 +12,16 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { ArrowLeft, Send } from 'lucide-react-native'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import Toast from 'react-native-toast-message'
 import * as api from '@/lib/api'
-import { unwrap } from '@/lib/utils'
+import { getMessagePage } from '@/lib/messages-api'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
 import type { Message } from '@/lib/types'
+
+const PAGE_SIZE = 50
 
 export default function ChatScreen() {
   const { id: conversationId } = useLocalSearchParams<{ id: string }>()
@@ -26,24 +29,50 @@ export default function ChatScreen() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const [messageText, setMessageText] = useState('')
-  const flatListRef = useRef<FlatList>(null)
+  const flatListRef = useRef<FlatList<Message>>(null)
 
-  const { data: messages, isLoading } = useQuery({
-    queryKey: ['messages', conversationId],
-    queryFn: async () => {
-      const response = await api.getMessages(conversationId!)
-      return unwrap(response) as Message[]
-    },
-    enabled: !!conversationId,
-    refetchInterval: 5000,
+  const { data: conversations = [] } = useQuery({
+    queryKey: ['conversations'],
+    queryFn: api.getConversations,
   })
 
-  // Supabase real-time subscription
+  const conversation = conversations.find((item) => item.id === conversationId)
+  const otherUser = conversation?.otherUser
+
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['messages', conversationId],
+    queryFn: ({ pageParam }) => getMessagePage(conversationId!, pageParam || undefined, PAGE_SIZE),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
+    enabled: !!conversationId,
+  })
+
+  const messages = useMemo(() => {
+    const pages = data?.pages || []
+    const seen = new Set<string>()
+    const merged = pages
+      .slice()
+      .reverse()
+      .flatMap((page) => page.messages)
+      .filter((message) => {
+        if (seen.has(message.id)) return false
+        seen.add(message.id)
+        return true
+      })
+    return merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  }, [data])
+
   useEffect(() => {
     if (!conversationId) return
 
     const channel = supabase
-      .channel(`messages:${conversationId}`)
+      .channel(`mobile-messages:${conversationId}`)
       .on(
         'postgres_changes',
         {
@@ -53,121 +82,97 @@ export default function ChatScreen() {
           filter: `conversationId=eq.${conversationId}`,
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: ['messages', conversationId] })
-        }
+          void queryClient.invalidateQueries({ queryKey: ['messages', conversationId] })
+          void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+        },
       )
       .subscribe()
 
-    // Mark as read
-    api.markAsRead(conversationId)
+    void api.markAsRead(conversationId)
 
     return () => {
-      supabase.removeChannel(channel)
+      void supabase.removeChannel(channel)
     }
-  }, [conversationId])
+  }, [conversationId, queryClient])
 
-  // Auto-scroll on new messages
   useEffect(() => {
-    if (messages && messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true })
-      }, 100)
+    if (messages.length > 0 && !isFetchingNextPage) {
+      const timer = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
+      return () => clearTimeout(timer)
     }
-  }, [messages?.length])
-
-  // Find the other user from messages
-  const otherUser = messages?.find((m) => m.senderId !== user?.id)?.sender
+  }, [messages.length, isFetchingNextPage])
 
   const sendMutation = useMutation({
     mutationFn: async () => {
-      const receiverId = otherUser?.id || messages?.[0]?.receiverId || messages?.[0]?.senderId
-      if (!receiverId) throw new Error('No receiver')
-      return api.sendMessage({ receiverId, content: messageText })
+      const content = messageText.trim()
+      if (!content) throw new Error('Message cannot be empty')
+      if (!otherUser?.id) throw new Error('Conversation participant is unavailable')
+      return api.sendMessage({ receiverId: otherUser.id, content })
     },
     onSuccess: () => {
       setMessageText('')
-      queryClient.invalidateQueries({ queryKey: ['messages', conversationId] })
+      void queryClient.invalidateQueries({ queryKey: ['messages', conversationId] })
+      void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    },
+    onError: (error: any) => {
+      Toast.show({ type: 'error', text1: error?.message || 'Failed to send message' })
     },
   })
 
-  const renderMessage = useCallback(
-    ({ item }: { item: Message }) => {
-      const isMine = item.senderId === user?.id
-
-      return (
-        <View className={`flex-row gap-2 px-4 py-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
-          {!isMine && (
-            <Avatar
-              uri={item.sender?.avatar}
-              username={item.sender?.username}
-              size="sm"
-            />
-          )}
-          <View
-            className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
-              isMine
-                ? 'bg-primary rounded-br-md'
-                : 'bg-surface-elevated rounded-bl-md'
-            }`}
-          >
-            <Text className={isMine ? 'text-white' : 'text-text-primary'}>
-              {item.content}
-            </Text>
-          </View>
+  const renderMessage = ({ item }: { item: Message }) => {
+    const isMine = item.senderId === user?.id
+    return (
+      <View className={`flex-row gap-2 px-4 py-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
+        {!isMine && <Avatar uri={item.sender?.avatar} username={item.sender?.username} size="sm" />}
+        <View className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${isMine ? 'bg-primary rounded-br-md' : 'bg-surface-elevated rounded-bl-md'}`}>
+          <Text className={isMine ? 'text-white' : 'text-text-primary'}>{item.content}</Text>
         </View>
-      )
-    },
-    [user?.id]
-  )
+      </View>
+    )
+  }
 
   return (
     <SafeAreaView className="flex-1 bg-background">
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
-      >
-        {/* Header */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
         <View className="flex-row items-center gap-3 px-4 py-3 border-b border-border">
-          <Pressable onPress={() => router.back()}>
-            <ArrowLeft size={24} color="#FAFAFA" />
-          </Pressable>
-          {otherUser && (
-            <Pressable
-              onPress={() => router.push(`/(stack)/user/${otherUser.username}`)}
-              className="flex-row items-center gap-2"
-            >
+          <Pressable onPress={() => router.back()}><ArrowLeft size={24} color="#FAFAFA" /></Pressable>
+          {otherUser ? (
+            <Pressable onPress={() => router.push(`/(stack)/user/${otherUser.username}`)} className="flex-row items-center gap-2">
               <Avatar uri={otherUser.avatar} username={otherUser.username} size="sm" />
-              <Text className="text-text-primary font-semibold">
-                {otherUser.displayName || otherUser.username}
-              </Text>
+              <Text className="text-text-primary font-semibold">{otherUser.displayName || otherUser.username}</Text>
             </Pressable>
+          ) : (
+            <Text className="text-text-primary font-semibold">Conversation</Text>
           )}
         </View>
 
         {isLoading ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#6366f1" size="large" />
-          </View>
+          <View className="flex-1 items-center justify-center"><ActivityIndicator color="#6366f1" size="large" /></View>
         ) : (
           <FlatList
             ref={flatListRef}
-            data={messages || []}
+            data={messages}
             renderItem={renderMessage}
             keyExtractor={(item) => item.id}
             contentContainerStyle={{ paddingVertical: 8 }}
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
-            ListEmptyComponent={
-              <View className="items-center justify-center py-20">
-                <Text className="text-text-muted">Start the conversation</Text>
-              </View>
+            ListHeaderComponent={
+              hasNextPage ? (
+                <Pressable
+                  onPress={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                  className="self-center px-4 py-2 my-2 rounded-full bg-surface-elevated"
+                >
+                  <Text className="text-primary text-sm">{isFetchingNextPage ? 'Loading…' : 'Load older messages'}</Text>
+                </Pressable>
+              ) : null
             }
+            ListEmptyComponent={<View className="items-center justify-center py-20"><Text className="text-text-muted">Start the conversation</Text></View>}
           />
         )}
 
-        {/* Message Input */}
         <View className="flex-row items-center gap-2 px-4 py-3 border-t border-border">
           <TextInput
-            placeholder="Type a message..."
+            placeholder={otherUser ? `Message ${otherUser.displayName || otherUser.username}...` : 'Type a message...'}
             placeholderTextColor="#71717A"
             value={messageText}
             onChangeText={setMessageText}
@@ -177,10 +182,10 @@ export default function ChatScreen() {
           />
           <Pressable
             onPress={() => sendMutation.mutate()}
-            disabled={!messageText.trim() || sendMutation.isPending}
-            className={`p-2.5 rounded-xl ${messageText.trim() ? 'bg-primary' : 'bg-surface-elevated'}`}
+            disabled={!messageText.trim() || !otherUser?.id || sendMutation.isPending}
+            className={`p-2.5 rounded-xl ${messageText.trim() && otherUser?.id ? 'bg-primary' : 'bg-surface-elevated'}`}
           >
-            <Send size={18} color={messageText.trim() ? '#fff' : '#71717A'} />
+            <Send size={18} color={messageText.trim() && otherUser?.id ? '#fff' : '#71717A'} />
           </Pressable>
         </View>
       </KeyboardAvoidingView>

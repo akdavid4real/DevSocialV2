@@ -1,26 +1,53 @@
-import { useState } from 'react'
-import { View, Text, ScrollView, Pressable, Switch } from 'react-native'
+import { View, Text, ScrollView, Pressable, Switch, ActivityIndicator } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { ArrowLeft, Sun, Moon, Monitor } from 'lucide-react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import Toast from 'react-native-toast-message'
 import { Card } from '@/components/ui/Card'
+import {
+  DEFAULT_APPEARANCE_SETTINGS,
+  getAppearanceSettings,
+  updateAppearanceSettings,
+  type AppearanceSettings,
+} from '@/lib/appearance-api'
 
 const THEMES = [
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'dark', label: 'Dark', icon: Moon },
   { value: 'system', label: 'System', icon: Monitor },
-]
+] as const
 
 export default function AppearanceSettingsScreen() {
   const router = useRouter()
-  const [theme, setTheme] = useState('dark')
-  const [compactMode, setCompactMode] = useState(false)
-  const [reduceAnimations, setReduceAnimations] = useState(false)
+  const queryClient = useQueryClient()
 
-  const handleThemeChange = async (value: string) => {
-    setTheme(value)
-    await AsyncStorage.setItem('theme', value)
+  const { data: settings = DEFAULT_APPEARANCE_SETTINGS, isLoading } = useQuery({
+    queryKey: ['appearance-settings'],
+    queryFn: getAppearanceSettings,
+  })
+
+  const mutation = useMutation({
+    mutationFn: updateAppearanceSettings,
+    onSuccess: (next) => {
+      queryClient.setQueryData(['appearance-settings'], next)
+      Toast.show({ type: 'success', text1: 'Appearance updated' })
+    },
+    onError: (error: any) => {
+      Toast.show({ type: 'error', text1: error?.message || 'Failed to update appearance' })
+    },
+  })
+
+  const save = (patch: Partial<AppearanceSettings>) => {
+    mutation.mutate({ ...settings, ...patch })
+  }
+
+  if (isLoading) {
+    return (
+      <SafeAreaView className="flex-1 bg-background items-center justify-center">
+        <ActivityIndicator color="#6366f1" />
+      </SafeAreaView>
+    )
   }
 
   return (
@@ -33,35 +60,26 @@ export default function AppearanceSettingsScreen() {
       </View>
 
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, gap: 20 }}>
-        {/* Theme Selection */}
         <View>
           <Text className="text-text-muted text-xs font-semibold uppercase tracking-wider mb-2 px-1">
             Theme
           </Text>
           <Card>
             <View className="flex-row p-3 gap-3">
-              {THEMES.map((t) => {
-                const Icon = t.icon
+              {THEMES.map((item) => {
+                const Icon = item.icon
+                const selected = settings.theme === item.value
                 return (
                   <Pressable
-                    key={t.value}
-                    onPress={() => handleThemeChange(t.value)}
+                    key={item.value}
+                    onPress={() => save({ theme: item.value })}
                     className={`flex-1 items-center py-4 rounded-xl border ${
-                      theme === t.value
-                        ? 'bg-primary/10 border-primary'
-                        : 'bg-surface-elevated border-border'
+                      selected ? 'bg-primary/10 border-primary' : 'bg-surface-elevated border-border'
                     }`}
                   >
-                    <Icon
-                      size={24}
-                      color={theme === t.value ? '#6366f1' : '#71717A'}
-                    />
-                    <Text
-                      className={`text-sm mt-2 font-medium ${
-                        theme === t.value ? 'text-primary' : 'text-text-muted'
-                      }`}
-                    >
-                      {t.label}
+                    <Icon size={24} color={selected ? '#6366f1' : '#71717A'} />
+                    <Text className={`text-sm mt-2 font-medium ${selected ? 'text-primary' : 'text-text-muted'}`}>
+                      {item.label}
                     </Text>
                   </Pressable>
                 )
@@ -70,7 +88,6 @@ export default function AppearanceSettingsScreen() {
           </Card>
         </View>
 
-        {/* Display Settings */}
         <View>
           <Text className="text-text-muted text-xs font-semibold uppercase tracking-wider mb-2 px-1">
             Display
@@ -82,8 +99,8 @@ export default function AppearanceSettingsScreen() {
                 <Text className="text-text-muted text-xs">Show more content on screen</Text>
               </View>
               <Switch
-                value={compactMode}
-                onValueChange={setCompactMode}
+                value={settings.compactMode}
+                onValueChange={(value) => save({ compactMode: value })}
                 trackColor={{ false: '#27272A', true: '#6366f1' }}
                 thumbColor="#fff"
               />
@@ -94,8 +111,8 @@ export default function AppearanceSettingsScreen() {
                 <Text className="text-text-muted text-xs">Minimize motion effects</Text>
               </View>
               <Switch
-                value={reduceAnimations}
-                onValueChange={setReduceAnimations}
+                value={settings.reducedMotion}
+                onValueChange={(value) => save({ reducedMotion: value })}
                 trackColor={{ false: '#27272A', true: '#6366f1' }}
                 thumbColor="#fff"
               />

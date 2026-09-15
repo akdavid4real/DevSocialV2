@@ -1,23 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
-import { API_BASE_URL, VAPID_PUBLIC_KEY } from '@/lib/env'
+import { VAPID_PUBLIC_KEY } from '@/lib/env'
+import api from '@/lib/api'
 
 type PushResult = {
   success: boolean
   error?: string
 }
 
-type PushSubscriptionResponse = {
-  data?: {
-    subscribed?: boolean
-  }
-}
-
 export function usePushNotifications() {
   const [isSupported, setIsSupported] = useState(false)
   const [isSubscribed, setIsSubscribed] = useState(false)
   const [loading, setLoading] = useState(true)
-
-  const getToken = () => localStorage.getItem('token')
 
   const checkSubscription = useCallback(async () => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
@@ -30,23 +23,14 @@ export function usePushNotifications() {
     setIsSupported(true)
 
     try {
-      const token = getToken()
       const registration = await navigator.serviceWorker.getRegistration()
       const browserSubscription = registration
         ? await registration.pushManager.getSubscription()
         : null
 
-      const res = await fetch(`${API_BASE_URL}/notifications/push-subscription`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      })
-
-      if (res.ok) {
-        const data = (await res.json()) as PushSubscriptionResponse
-        setIsSubscribed(!!browserSubscription && !!data.data?.subscribed)
-      } else {
-        setIsSubscribed(!!browserSubscription)
-      }
-    } catch (error) {
+      const response: any = await api.get('/notifications/push-subscription')
+      setIsSubscribed(!!browserSubscription && !!response?.data?.subscribed)
+    } catch {
       setIsSubscribed(false)
     } finally {
       setLoading(false)
@@ -78,30 +62,14 @@ export function usePushNotifications() {
       }
 
       const existingSubscription = await registration.pushManager.getSubscription()
-      if (existingSubscription) {
-        await existingSubscription.unsubscribe()
-      }
+      if (existingSubscription) await existingSubscription.unsubscribe()
 
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
       })
 
-      const token = getToken()
-      const res = await fetch(`${API_BASE_URL}/notifications/push-subscription`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(subscription.toJSON()),
-      })
-
-      if (!res.ok) {
-        await subscription.unsubscribe()
-        return { success: false, error: 'Failed to save push subscription' }
-      }
-
+      await api.post('/notifications/push-subscription', subscription.toJSON())
       setIsSubscribed(true)
       return { success: true }
     } catch (error) {
@@ -116,20 +84,9 @@ export function usePushNotifications() {
     try {
       const registration = await navigator.serviceWorker.getRegistration()
       const subscription = registration ? await registration.pushManager.getSubscription() : null
-      if (subscription) {
-        await subscription.unsubscribe()
-      }
+      if (subscription) await subscription.unsubscribe()
 
-      const token = getToken()
-      const res = await fetch(`${API_BASE_URL}/notifications/push-subscription`, {
-        method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      })
-
-      if (!res.ok) {
-        return { success: false, error: 'Failed to clear push subscription' }
-      }
-
+      await api.delete('/notifications/push-subscription')
       setIsSubscribed(false)
       return { success: true }
     } catch (error) {
