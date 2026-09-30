@@ -78,9 +78,19 @@ The following routes are implemented and verified in Spring:
 | `DELETE /api/v2/users/unblock/{userId}` | Bearer | Removes the current user's block |
 | `POST /api/v2/upload` | Bearer | Magic-byte validation, Supabase Storage upload, and durable asset ownership |
 | `POST /api/v2/storage/upload` | Bearer | Compatibility alias used by the existing comment uploader |
+| `GET /api/v2/posts` | Optional bearer | Paginated feed or search array with privacy, block, and community visibility |
+| `GET /api/v2/posts/tag/{tagName}` | Optional bearer | Paginated tag feed with existing tag metadata shape |
+| `GET /api/v2/posts/{postId}` | Optional bearer | Visibility enforcement, viewer-like state, and unique view tracking |
+| `GET /api/v2/posts/{postId}/comments` | Optional bearer | Paginated top-level comments with viewer-like state |
+| `GET /api/v2/posts/comments/{commentId}/replies` | Optional bearer | Paginated replies after parent-post visibility checks |
+| `GET /api/v2/users/{username}/posts` | Optional bearer | Existing username privacy/block rules and user post list |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
+
+For the partially migrated `posts` group, route by HTTP method as well as path: only the
+documented `GET` routes are Spring-owned. Post, comment, like, and poll mutations remain on
+NestJS until their XP, mention, notification, moderation, and asset-attachment invariants pass.
 
 Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY`. The Spring implementation does not create or migrate tables.

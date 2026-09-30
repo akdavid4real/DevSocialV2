@@ -3,6 +3,7 @@ package com.devsocial.backend.configuration;
 import com.devsocial.backend.auth.BearerAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
@@ -57,6 +58,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/follow/**", "/users/blocked", "/users/block/**", "/users/unblock/**")
                         .authenticated()
                         .requestMatchers("/upload", "/storage/upload").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/posts", "/posts/**", "/users/*/posts").permitAll()
                         .requestMatchers("/profile-access/*", "/users/*").permitAll()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
