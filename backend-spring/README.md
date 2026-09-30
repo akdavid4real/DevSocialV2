@@ -130,6 +130,8 @@ The following routes are implemented and verified in Spring:
 | `POST /api/v2/link-preview` | Public | Five-second HTML metadata fetch for the web post composer with relative-image resolution |
 | `GET, POST /api/v2/challenges/**` | Optional bearer / Bearer | Active and joined web challenges, staff creation, serialized progress rewards, and public leaderboards |
 | `POST /api/v2/posts/summarize`, `POST /api/v2/posts/explain`, `POST /api/v2/ai/enhance-text` | Bearer | Deterministic web writing assistance with serialized monthly limits and AI audit logs |
+| `GET /api/v2/admin/dashboard/stats`, `GET /api/v2/admin/dashboard/user-growth` | Bearer + staff/analytics role | Web administration counters and registration growth data using existing tables |
+| `GET /api/v2/admin/ai-logs` | Bearer + admin/analytics role | Filtered AI audit records, user projections, grouped timing statistics, and pagination |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
@@ -160,5 +162,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 16. Web link previews
 17. Web challenges
 18. Web AI writing assistance
+19. Web admin analytics
 
 NestJS remains responsible for every route group until that entire group passes contract tests.

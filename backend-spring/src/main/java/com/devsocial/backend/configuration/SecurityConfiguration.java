@@ -86,6 +86,11 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/posts/summarize", "/posts/explain", "/ai/enhance-text")
                         .authenticated()
                         .requestMatchers(HttpMethod.GET,
+                                "/admin/dashboard/stats",
+                                "/admin/dashboard/user-growth",
+                                "/admin/ai-logs"
+                        ).authenticated()
+                        .requestMatchers(HttpMethod.GET,
                                 "/users/*/activities",
                                 "/users/*/liked-posts",
                                 "/users/*/commented-posts",
