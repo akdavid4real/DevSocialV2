@@ -14,7 +14,8 @@ import java.util.Map;
 import java.util.UUID;
 
 @Component
-public class SupabaseRestIdentityProvider implements SupabaseIdentityProvider, SupabaseSessionGateway {
+public class SupabaseRestIdentityProvider
+        implements SupabaseIdentityProvider, SupabaseSessionGateway, SupabaseAccountGateway {
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -41,6 +42,83 @@ public class SupabaseRestIdentityProvider implements SupabaseIdentityProvider, S
     @Override
     public SupabaseSession refresh(String refreshToken) {
         return tokenRequest("refresh_token", Map.of("refresh_token", refreshToken));
+    }
+
+    @Override
+    public UUID verifySignupOtp(String email, String token) {
+        requireConfiguration();
+        try {
+            VerifyResponse response = restClient.post()
+                    .uri(supabaseUrl + "/auth/v1/verify")
+                    .header("apikey", serviceRoleKey)
+                    .body(Map.of("email", email, "token", token, "type", "signup"))
+                    .retrieve()
+                    .body(VerifyResponse.class);
+            if (response == null || response.user() == null || response.user().id() == null) {
+                throw new SupabaseAuthException("Verification failed");
+            }
+            return response.user().id();
+        } catch (SupabaseAuthException exception) {
+            throw exception;
+        } catch (RestClientResponseException exception) {
+            throw new SupabaseAuthException(errorMessage(exception), exception);
+        } catch (RestClientException exception) {
+            throw new SupabaseAuthException("Verification failed", exception);
+        }
+    }
+
+    @Override
+    public void sendPasswordReset(String email, String redirectUrl) {
+        requireConfiguration();
+        String uri = org.springframework.web.util.UriComponentsBuilder
+                .fromUriString(supabaseUrl + "/auth/v1/recover")
+                .queryParam("redirect_to", redirectUrl)
+                .build().encode().toUriString();
+        execute(() -> restClient.post().uri(uri)
+                .header("apikey", serviceRoleKey)
+                .body(Map.of("email", email))
+                .retrieve().toBodilessEntity());
+    }
+
+    @Override
+    public void updatePassword(UUID supabaseUserId, String newPassword) {
+        requireConfiguration();
+        execute(() -> restClient.put()
+                .uri(supabaseUrl + "/auth/v1/admin/users/" + supabaseUserId)
+                .header("apikey", serviceRoleKey)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+                .body(Map.of("password", newPassword))
+                .retrieve().toBodilessEntity());
+    }
+
+    @Override
+    public void deleteUser(UUID supabaseUserId) {
+        requireConfiguration();
+        execute(() -> restClient.delete()
+                .uri(supabaseUrl + "/auth/v1/admin/users/" + supabaseUserId)
+                .header("apikey", serviceRoleKey)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+                .retrieve().toBodilessEntity());
+    }
+
+    @Override
+    public void signOut(String accessToken, SignOutScope scope) {
+        requireConfiguration();
+        execute(() -> restClient.post()
+                .uri(supabaseUrl + "/auth/v1/logout?scope=" + scope.queryValue())
+                .header("apikey", serviceRoleKey)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .retrieve().toBodilessEntity());
+    }
+
+    private void execute(Runnable request) {
+        try {
+            request.run();
+        } catch (RestClientResponseException exception) {
+            throw new SupabaseAuthException(errorMessage(exception), exception);
+        } catch (RestClientException exception) {
+            throw new SupabaseAuthException("Supabase account request failed", exception);
+        }
     }
 
     private SupabaseSession tokenRequest(String grantType, Map<String, String> body) {
@@ -127,5 +205,8 @@ public class SupabaseRestIdentityProvider implements SupabaseIdentityProvider, S
             @JsonProperty("expires_at") long expiresAt,
             SupabaseUser user
     ) {
+    }
+
+    private record VerifyResponse(SupabaseUser user) {
     }
 }

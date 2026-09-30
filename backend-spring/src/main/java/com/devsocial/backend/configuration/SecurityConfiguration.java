@@ -29,8 +29,21 @@ public class SecurityConfiguration {
                         .accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/", "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
-                        .requestMatchers("/auth/login", "/auth/refresh").permitAll()
-                        .requestMatchers("/auth/me").authenticated()
+                        .requestMatchers(
+                                "/auth/login",
+                                "/auth/refresh",
+                                "/auth/verify",
+                                "/auth/forgot-password"
+                        ).permitAll()
+                        .requestMatchers(
+                                "/auth/me",
+                                "/auth/change-password",
+                                "/auth/delete-account",
+                                "/auth/logout",
+                                "/auth/logout-all",
+                                "/auth/sessions",
+                                "/auth/sessions/**"
+                        ).authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();

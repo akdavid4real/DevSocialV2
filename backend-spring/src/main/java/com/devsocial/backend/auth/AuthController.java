@@ -6,8 +6,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,15 +23,18 @@ public class AuthController {
     private final CurrentUserQuery currentUserQuery;
     private final SessionAuthentication sessionAuthentication;
     private final AuthCookieFactory cookies;
+    private final AccountManagement accountManagement;
 
     public AuthController(
             CurrentUserQuery currentUserQuery,
             SessionAuthentication sessionAuthentication,
-            AuthCookieFactory cookies
+            AuthCookieFactory cookies,
+            AccountManagement accountManagement
     ) {
         this.currentUserQuery = currentUserQuery;
         this.sessionAuthentication = sessionAuthentication;
         this.cookies = cookies;
+        this.accountManagement = accountManagement;
     }
 
     @PostMapping("/login")
@@ -65,9 +70,61 @@ public class AuthController {
         return response.body(sessionAuthentication.toPublicSession(result, mobile));
     }
 
+    @PostMapping("/verify")
+    MessageResponse verify(@Valid @RequestBody VerifyRequest request) {
+        return accountManagement.verify(request);
+    }
+
+    @PostMapping("/forgot-password")
+    MessageResponse forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        return accountManagement.forgotPassword(request);
+    }
+
     @GetMapping("/me")
     CurrentUser me(@AuthenticationPrincipal AuthenticatedUser principal) {
         return currentUserQuery.get(principal);
+    }
+
+    @PostMapping("/change-password")
+    MessageResponse changePassword(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @Valid @RequestBody ChangePasswordRequest request
+    ) {
+        return accountManagement.changePassword(principal, request);
+    }
+
+    @DeleteMapping("/delete-account")
+    ResponseEntity<MessageResponse> deleteAccount(@AuthenticationPrincipal AuthenticatedUser principal) {
+        return withClearedCookie(accountManagement.deleteAccount(principal));
+    }
+
+    @PostMapping("/logout")
+    ResponseEntity<MessageResponse> logout(@AuthenticationPrincipal AuthenticatedUser principal) {
+        return withClearedCookie(accountManagement.logout(principal));
+    }
+
+    @GetMapping("/sessions")
+    SessionList sessions(@AuthenticationPrincipal AuthenticatedUser principal) {
+        return accountManagement.sessions(principal);
+    }
+
+    @DeleteMapping("/sessions/{sessionId}")
+    ResponseEntity<MessageResponse> logoutSession(
+            @AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable String sessionId
+    ) {
+        return withClearedCookie(accountManagement.logoutSession(principal, sessionId));
+    }
+
+    @PostMapping("/logout-all")
+    ResponseEntity<MessageResponse> logoutAll(@AuthenticationPrincipal AuthenticatedUser principal) {
+        return withClearedCookie(accountManagement.logoutAll(principal));
+    }
+
+    private ResponseEntity<MessageResponse> withClearedCookie(MessageResponse body) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookies.clear().toString())
+                .body(body);
     }
 
     private static boolean isMobile(String clientPlatform) {

@@ -42,7 +42,15 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2` | Public | Existing health/root response contract |
 | `POST /api/v2/auth/login` | Public | Web HttpOnly cookie and mobile JSON token behavior |
 | `POST /api/v2/auth/refresh` | Public | Rotates the web cookie or returns the mobile refresh token |
+| `POST /api/v2/auth/verify` | Public | Verifies the existing six-character signup OTP |
+| `POST /api/v2/auth/forgot-password` | Public | Preserves account-enumeration-safe response behavior |
 | `GET /api/v2/auth/me` | Bearer | Verifies Supabase, `auth.sessions`, block state, and local profile |
+| `POST /api/v2/auth/change-password` | Bearer | Rechecks the current password before the admin update |
+| `DELETE /api/v2/auth/delete-account` | Bearer | Deletes Supabase auth and then the local profile |
+| `POST /api/v2/auth/logout` | Bearer | Revokes the current Supabase session and clears the cookie |
+| `GET /api/v2/auth/sessions` | Bearer | Returns the current-session-only compatibility representation |
+| `DELETE /api/v2/auth/sessions/{id}` | Bearer | Restricts individual revocation to the current session |
+| `POST /api/v2/auth/logout-all` | Bearer | Revokes every Supabase session and clears the cookie |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.

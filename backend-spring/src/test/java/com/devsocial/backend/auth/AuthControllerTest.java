@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -96,6 +97,59 @@ class AuthControllerTest {
                         org.hamcrest.Matchers.containsString("devsocial_refresh=refresh-token")))
                 .andExpect(jsonPath("$.data.session.access_token").value("access-token"))
                 .andExpect(jsonPath("$.data.session.refresh_token").doesNotExist());
+    }
+
+    @Test
+    void verifiesSignupOtpUsingTheExistingContract() throws Exception {
+        mockMvc.perform(post("/auth/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"spring@devsocial.test\",\"token\":\"123456\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.success").value(true))
+                .andExpect(jsonPath("$.data.message").value("Email verified successfully"));
+    }
+
+    @Test
+    void returnsGenericForgotPasswordResponse() throws Exception {
+        mockMvc.perform(post("/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"unknown@devsocial.test\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.success").value(true))
+                .andExpect(jsonPath("$.data.message").value(
+                        "If an account with that email exists, we've sent a password reset link."
+                ));
+    }
+
+    @Test
+    void returnsCurrentSessionMetadata() throws Exception {
+        mockMvc.perform(get("/auth/sessions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.sessions[0].id").value(SESSION_ID.toString()))
+                .andExpect(jsonPath("$.data.sessions[0].isCurrent").value(true))
+                .andExpect(jsonPath("$.data.supportsIndividualSessionListing").value(false));
+    }
+
+    @Test
+    void logoutRevokesTheSessionAndClearsTheCookie() throws Exception {
+        mockMvc.perform(post("/auth/logout")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.SET_COOKIE,
+                        org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.containsString("devsocial_refresh="),
+                                org.hamcrest.Matchers.containsString("Max-Age=0")
+                        )))
+                .andExpect(jsonPath("$.data.message").value("Logged out successfully"));
+    }
+
+    @Test
+    void rejectsRevokingAnotherSession() throws Exception {
+        mockMvc.perform(delete("/auth/sessions/" + UUID.randomUUID())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Only the current session can be revoked individually"));
     }
 
     private static String accessToken() {
@@ -181,6 +235,59 @@ class AuthControllerTest {
                 @Override
                 public SupabaseSession refresh(String refreshToken) {
                     return session();
+                }
+            };
+        }
+
+        @Bean
+        @Primary
+        SupabaseAccountGateway fakeSupabaseAccounts() {
+            return new SupabaseAccountGateway() {
+                @Override
+                public UUID verifySignupOtp(String email, String token) {
+                    return SUPABASE_USER_ID;
+                }
+
+                @Override
+                public void sendPasswordReset(String email, String redirectUrl) {
+                }
+
+                @Override
+                public void updatePassword(UUID supabaseUserId, String newPassword) {
+                }
+
+                @Override
+                public void deleteUser(UUID supabaseUserId) {
+                }
+
+                @Override
+                public void signOut(String accessToken, SignOutScope scope) {
+                }
+            };
+        }
+
+        @Bean
+        @Primary
+        AccountManagementRepository fakeAccountManagementRepository() {
+            return new AccountManagementRepository() {
+                @Override
+                public boolean emailExists(String email) {
+                    return false;
+                }
+
+                @Override
+                public void markVerified(UUID supabaseUserId) {
+                }
+
+                @Override
+                public Optional<AccountCredentials> findCredentials(UUID userId) {
+                    return Optional.of(new AccountCredentials(
+                            SUPABASE_USER_ID, "spring@devsocial.test"
+                    ));
+                }
+
+                @Override
+                public void deleteUser(UUID userId) {
                 }
             };
         }
