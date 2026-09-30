@@ -58,6 +58,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/follow/**", "/users/blocked", "/users/block/**", "/users/unblock/**")
                         .authenticated()
                         .requestMatchers("/upload", "/storage/upload").authenticated()
+                        .requestMatchers("/notifications", "/notifications/**").authenticated()
                         .requestMatchers(HttpMethod.GET, "/posts", "/posts/**", "/users/*/posts").permitAll()
                         .requestMatchers(HttpMethod.GET, "/search", "/trending").permitAll()
                         .requestMatchers("/posts", "/posts/**").authenticated()

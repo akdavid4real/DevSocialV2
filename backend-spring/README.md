@@ -93,6 +93,10 @@ The following routes are implemented and verified in Spring:
 | `POST /api/v2/posts/{postId}/poll/vote` | Bearer | Serializable poll validation, vote update, and XP award |
 | `GET /api/v2/search` | Optional bearer | Posts, users, and tags with the existing nested response and privacy-aware filtering |
 | `GET /api/v2/trending` | Optional bearer | Time-window post ranking, hashtag topics, rising users, and dashboard statistics |
+| `GET /api/v2/notifications`, `GET /api/v2/notifications/{id}` | Bearer | Existing nested list envelope, unread filtering/count, and sender projection |
+| `PUT /api/v2/notifications/mark-read`, `PUT /api/v2/notifications/mark-unread` | Bearer | Recipient-scoped bulk updates capped at 100 notification IDs |
+| `GET, POST, DELETE /api/v2/notifications/push-subscription` | Bearer | Backward-compatible web-push state in the existing User JSONB field |
+| `POST, DELETE /api/v2/notifications/mobile-push-token` | Bearer | Validated Expo token registration with deduplication and five-device cap |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
