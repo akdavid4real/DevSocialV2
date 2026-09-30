@@ -8,5 +8,7 @@ public interface WebAccountSupport {
 
     Map<String, Object> securityStats(UUID userId);
 
+    Map<String, Object> aiUsage(UUID userId);
+
     Map<String, Object> exportData(UUID userId);
 }

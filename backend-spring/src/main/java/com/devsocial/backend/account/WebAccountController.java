@@ -26,6 +26,11 @@ public class WebAccountController {
         return accounts.securityStats(principal.userId());
     }
 
+    @GetMapping("/users/ai-usage")
+    Map<String, Object> aiUsage(@AuthenticationPrincipal AuthenticatedUser principal) {
+        return accounts.aiUsage(principal.userId());
+    }
+
     @PostMapping("/users/export-data")
     Map<String, Object> exportData(@AuthenticationPrincipal AuthenticatedUser principal) {
         return accounts.exportData(principal.userId());

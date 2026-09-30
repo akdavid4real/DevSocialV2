@@ -70,6 +70,18 @@ class WebAccountControllerTest {
     }
 
     @Test
+    void aiUsageRequiresAuthenticationAndKeepsTheLegacyNestedEnvelope() throws Exception {
+        mockMvc.perform(get("/users/ai-usage"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/users/ai-usage").header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.data.summaries.used").value(2))
+                .andExpect(jsonPath("$.data.data.summaries.limit").value(5))
+                .andExpect(jsonPath("$.data.data.summaries.remaining").value(3))
+                .andExpect(jsonPath("$.data.data.isPremium").value(false));
+    }
+
+    @Test
     void dataExportKeepsTheExistingNestedDownloadEnvelope() throws Exception {
         mockMvc.perform(post("/users/export-data").header(HttpHeaders.AUTHORIZATION, bearer()))
                 .andExpect(status().isOk())
@@ -139,6 +151,14 @@ class WebAccountControllerTest {
                     )),
                     "recentEvents", List.of(Map.of("type", "LOGIN"))
             );
+        }
+
+        @Override
+        public Map<String, Object> aiUsage(UUID userId) {
+            return Map.of("data", Map.of(
+                    "summaries", Map.of("used", 2, "limit", 5, "remaining", 3),
+                    "isPremium", false
+            ));
         }
 
         @Override

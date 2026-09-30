@@ -62,6 +62,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/notifications", "/notifications/**").authenticated()
                         .requestMatchers("/messages", "/messages/**").authenticated()
                         .requestMatchers("/users/export-data").authenticated()
+                        .requestMatchers("/users/ai-usage").authenticated()
                         .requestMatchers(HttpMethod.POST, "/users/*/pin-post").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/users/*/unpin-post/*").authenticated()
                         .requestMatchers(HttpMethod.GET, "/posts", "/posts/**", "/users/*/posts").permitAll()

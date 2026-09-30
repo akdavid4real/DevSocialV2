@@ -125,6 +125,7 @@ The following routes are implemented and verified in Spring:
 | `POST /api/v2/feedback/{id}/comments` | Bearer | Role-aware comments with atomic denormalized count updates |
 | `PATCH /api/v2/feedback/{id}/status` | Bearer + staff role | Moderator/admin status workflow with solver attribution |
 | `POST /api/v2/reports` | Bearer | Duplicate-safe post reporting with archived/self-report safeguards |
+| `GET /api/v2/users/ai-usage` | Bearer | Existing nested per-feature usage envelope with free/premium limits and reset metadata |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
@@ -150,5 +151,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 11. Web referrals
 12. Web feedback
 13. Web report submission
+14. Web AI usage summary
 
 NestJS remains responsible for every route group until that entire group passes contract tests.

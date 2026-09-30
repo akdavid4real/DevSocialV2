@@ -100,6 +100,26 @@ public class JdbcWebAccountSupport implements WebAccountSupport {
 
     @Override
     @Transactional(readOnly = true)
+    public Map<String, Object> aiUsage(UUID userId) {
+        UsageAccount account = jdbc.sql("SELECT \"aiUsage\"::text AS usage, \"isPremium\" FROM \"User\" WHERE id = :userId")
+                .param("userId", userId)
+                .query((rs, row) -> new UsageAccount(jsonMap(rs.getString("usage")), rs.getBoolean("isPremium")))
+                .optional()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        Map<String, Object> usage = new LinkedHashMap<>();
+        usage.put("summaries", featureUsage(account.usage(), "summaries", account.premium() ? 100 : 5));
+        usage.put("explanations", featureUsage(account.usage(), "explanations", account.premium() ? 100 : 10));
+        usage.put("enhancements", featureUsage(account.usage(), "enhancements", account.premium() ? 100 : 5));
+        usage.put("transcriptions", featureUsage(account.usage(), "transcriptions", account.premium() ? 100 : 10));
+        usage.put("imageAnalysis", featureUsage(account.usage(), "imageAnalysis", account.premium() ? 100 : 10));
+        usage.put("isPremium", account.premium());
+        Object resetsOn = account.usage().get("resetsOn");
+        usage.put("resetsOn", resetsOn instanceof String ? resetsOn : null);
+        return Map.of("data", usage);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Map<String, Object> exportData(UUID userId) {
         ExportUser user = exportUser(userId);
         List<Map<String, Object>> posts = jsonRows("""
@@ -241,6 +261,14 @@ public class JdbcWebAccountSupport implements WebAccountSupport {
         return value instanceof Number number ? number.longValue() : 0;
     }
 
+    private Map<String, Object> featureUsage(Map<String, Object> usage, String key, int fallbackLimit) {
+        Object raw = usage.get(key);
+        Map<?, ?> feature = raw instanceof Map<?, ?> map ? map : Map.of();
+        int used = feature.get("used") instanceof Number number ? number.intValue() : 0;
+        int limit = feature.get("limit") instanceof Number number ? number.intValue() : fallbackLimit;
+        return Map.of("used", used, "limit", limit, "remaining", Math.max(limit - used, 0));
+    }
+
     private record Affiliation(String subType, String name) {
     }
 
@@ -248,5 +276,8 @@ public class JdbcWebAccountSupport implements WebAccountSupport {
     }
 
     private record ExportUser(Map<String, Object> data, Instant createdAt) {
+    }
+
+    private record UsageAccount(Map<String, Object> usage, boolean premium) {
     }
 }
