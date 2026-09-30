@@ -109,12 +109,16 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2/affiliations` | Public | Existing alphabetized affiliation lists grouped by subtype for web onboarding |
 | `GET /api/v2/auth/security-stats` | Bearer | Account age plus recorded login and security-event telemetry |
 | `POST /api/v2/users/export-data` | Bearer | Read-only account/content/activity JSON export without Supabase credentials |
+| `GET /api/v2/communities`, `GET /api/v2/communities/{idOrSlug}` | Optional bearer | Web community catalog/detail, membership state, and private-member redaction |
+| `POST /api/v2/communities`, `POST /api/v2/communities/{idOrSlug}/join` | Bearer | Community creation plus public membership or private join-request workflow |
+| `GET /api/v2/communities/{idOrSlug}/posts`, `POST /api/v2/communities/{idOrSlug}/posts` | Optional bearer / Bearer | Private-community access checks and member-only community publishing |
+| `/api/v2/communities/invitations/**`, `/api/v2/communities/**/join-requests/**`, `/api/v2/communities/**/invites/**` | Bearer | Web invitation inbox and creator/moderator membership review workflow |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
 
-The core `posts` controller group is Spring-owned. AI post analysis and community-specific
-post routes remain separately owned by their NestJS route groups until documented here.
+The core `posts` and web `communities` controller groups are Spring-owned. AI post analysis
+remains separately owned by its NestJS route group until documented here.
 
 Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY`. The Spring implementation does not create or migrate tables.
@@ -128,5 +132,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 5. Storage
 6. Posts, comments, and likes
 7. Search and trending
+8. Web communities
 
 NestJS remains responsible for every route group until that entire group passes contract tests.

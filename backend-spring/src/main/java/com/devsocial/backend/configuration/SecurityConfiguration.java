@@ -66,6 +66,9 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.DELETE, "/users/*/unpin-post/*").authenticated()
                         .requestMatchers(HttpMethod.GET, "/posts", "/posts/**", "/users/*/posts").permitAll()
                         .requestMatchers(HttpMethod.GET, "/search", "/trending").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/communities", "/communities/*", "/communities/*/posts")
+                        .permitAll()
+                        .requestMatchers("/communities", "/communities/**").authenticated()
                         .requestMatchers(HttpMethod.GET,
                                 "/users/*/activities",
                                 "/users/*/liked-posts",
