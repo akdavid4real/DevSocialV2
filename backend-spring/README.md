@@ -134,6 +134,8 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2/admin/ai-logs` | Bearer + admin/analytics role | Filtered AI audit records, user projections, grouped timing statistics, and pagination |
 | `GET /api/v2/admin/reports`, `GET /api/v2/admin/reports/{id}` | Bearer + staff role | Filtered moderation inbox with reporter, target-user, and reported-post projections |
 | `PUT /api/v2/admin/reports/{id}/resolve` | Bearer + staff role | Transactional report resolution, moderation side effects, and audit metadata |
+| `GET /api/v2/admin/posts`, `PUT /api/v2/admin/posts/{id}/status`, `DELETE /api/v2/admin/posts/{id}` | Bearer + staff role | Filtered post moderation, transactional status/delete actions, and audit records |
+| `GET /api/v2/admin/audit-logs` | Bearer + admin role | Paginated administrative audit history |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
@@ -166,5 +168,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 18. Web AI writing assistance
 19. Web admin analytics
 20. Web admin report moderation
+21. Web admin content moderation and audit logs
 
 NestJS remains responsible for every route group until that entire group passes contract tests.

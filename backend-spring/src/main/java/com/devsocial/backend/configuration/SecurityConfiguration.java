@@ -93,6 +93,9 @@ public class SecurityConfiguration {
                                 "/admin/reports/*"
                         ).authenticated()
                         .requestMatchers(HttpMethod.PUT, "/admin/reports/*/resolve").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/admin/posts", "/admin/audit-logs").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/admin/posts/*/status").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/admin/posts/*").authenticated()
                         .requestMatchers(HttpMethod.GET,
                                 "/users/*/activities",
                                 "/users/*/liked-posts",
