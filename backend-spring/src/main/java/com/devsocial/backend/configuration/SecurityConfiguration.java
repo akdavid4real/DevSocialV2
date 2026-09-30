@@ -80,6 +80,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/referrals/**").authenticated()
                         .requestMatchers("/feedback", "/feedback/**").authenticated()
                         .requestMatchers("/reports", "/reports/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/link-preview").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/users/*/activities",
                                 "/users/*/liked-posts",

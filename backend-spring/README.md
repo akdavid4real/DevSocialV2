@@ -127,6 +127,7 @@ The following routes are implemented and verified in Spring:
 | `POST /api/v2/reports` | Bearer | Duplicate-safe post reporting with archived/self-report safeguards |
 | `GET /api/v2/users/ai-usage` | Bearer | Existing nested per-feature usage envelope with free/premium limits and reset metadata |
 | `GET /api/v2/users/dashboard` | Bearer | Period/lifetime post analytics, engagement, XP, ranking, challenge, notification, and activity charts |
+| `POST /api/v2/link-preview` | Public | Five-second HTML metadata fetch for the web post composer with relative-image resolution |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
@@ -154,5 +155,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 13. Web report submission
 14. Web AI usage summary
 15. Web dashboard analytics
+16. Web link previews
 
 NestJS remains responsible for every route group until that entire group passes contract tests.

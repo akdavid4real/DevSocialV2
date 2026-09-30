@@ -7,11 +7,21 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
 @Configuration
 public class WebConfiguration {
+
+    @Bean
+    HttpClient linkPreviewHttpClient() {
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+    }
 
     @Bean
     CorsConfigurationSource corsConfigurationSource(
@@ -32,4 +42,3 @@ public class WebConfiguration {
         return source;
     }
 }
-
