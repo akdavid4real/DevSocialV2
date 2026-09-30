@@ -116,12 +116,14 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2/projects`, `GET /api/v2/projects/{id}` | Optional bearer | Public web project discovery/detail and once-per-visitor daily view tracking |
 | `GET /api/v2/projects/me`, `POST /api/v2/projects` | Bearer | Owner project dashboard statistics and validated project creation |
 | `PUT /api/v2/projects/{id}/status`, `DELETE /api/v2/projects/{id}` | Bearer | Owner-only project lifecycle mutations |
+| `GET /api/v2/knowledge-bank`, `GET /api/v2/knowledge-bank/{id}` | Public | Filtered web knowledge catalog and author-enriched entry details |
+| `POST /api/v2/knowledge-bank` | Bearer | Validated knowledge publishing using the existing PostgreSQL schema |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
 
-The core `posts`, web `communities`, and web `projects` controller groups are Spring-owned.
-AI post analysis remains separately owned by its NestJS route group until documented here.
+The core `posts`, web `communities`, web `projects`, and web `knowledge-bank` controller groups
+are Spring-owned. AI post analysis remains separately owned by its NestJS route group until documented here.
 
 Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY`. The Spring implementation does not create or migrate tables.
@@ -137,5 +139,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 7. Search and trending
 8. Web communities
 9. Web projects
+10. Web knowledge bank
 
 NestJS remains responsible for every route group until that entire group passes contract tests.
