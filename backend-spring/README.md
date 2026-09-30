@@ -101,6 +101,11 @@ The following routes are implemented and verified in Spring:
 | `POST /api/v2/messages`, `GET /api/v2/messages/{conversationId}` | Bearer | Transactional send and chronological cursor history using the existing realtime tables |
 | `GET /api/v2/messages/unread-count`, `PATCH /api/v2/messages/{conversationId}/read` | Bearer | Recipient-scoped unread count and read updates |
 | `POST, DELETE /api/v2/messages/{conversationId}/{messageId}/reactions` | Bearer | Participant-only serialized JSONB reaction updates |
+| `GET /api/v2/users/{username}/activities` | Optional bearer | Privacy-aware paginated activity history with the existing nested envelope |
+| `GET /api/v2/users/{username}/liked-posts`, `GET /api/v2/users/{username}/commented-posts` | Optional bearer | Active hydrated post lists with viewer-like state |
+| `GET /api/v2/users/{username}/stats`, `GET /api/v2/users/{username}/activity-heatmap` | Optional bearer | Profile counters and the existing 84-day activity series |
+| `GET /api/v2/users/{username}/pinned-posts` | Optional bearer | Up to three active posts in the user's saved order |
+| `POST /api/v2/users/{username}/pin-post`, `DELETE /api/v2/users/{username}/unpin-post/{postId}` | Bearer | Owner-only, serialized pin mutations with the three-post cap |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.

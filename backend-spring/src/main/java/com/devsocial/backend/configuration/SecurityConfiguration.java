@@ -60,8 +60,18 @@ public class SecurityConfiguration {
                         .requestMatchers("/upload", "/storage/upload").authenticated()
                         .requestMatchers("/notifications", "/notifications/**").authenticated()
                         .requestMatchers("/messages", "/messages/**").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/users/*/pin-post").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/users/*/unpin-post/*").authenticated()
                         .requestMatchers(HttpMethod.GET, "/posts", "/posts/**", "/users/*/posts").permitAll()
                         .requestMatchers(HttpMethod.GET, "/search", "/trending").permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/users/*/activities",
+                                "/users/*/liked-posts",
+                                "/users/*/commented-posts",
+                                "/users/*/stats",
+                                "/users/*/activity-heatmap",
+                                "/users/*/pinned-posts"
+                        ).permitAll()
                         .requestMatchers("/posts", "/posts/**").authenticated()
                         .requestMatchers("/profile-access/*", "/users/*").permitAll()
                         .anyRequest().denyAll())
