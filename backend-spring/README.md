@@ -40,6 +40,7 @@ The following routes are implemented and verified in Spring:
 | Route | Authentication | Notes |
 | --- | --- | --- |
 | `GET /api/v2` | Public | Existing health/root response contract |
+| `POST /api/v2/auth/register` | Public | Supabase signup, local profile/UserStats transaction, referral rewards |
 | `POST /api/v2/auth/login` | Public | Web HttpOnly cookie and mobile JSON token behavior |
 | `POST /api/v2/auth/refresh` | Public | Rotates the web cookie or returns the mobile refresh token |
 | `POST /api/v2/auth/verify` | Public | Verifies the existing six-character signup OTP |

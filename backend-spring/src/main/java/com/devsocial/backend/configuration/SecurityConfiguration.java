@@ -30,6 +30,7 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/", "/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(
+                                "/auth/register",
                                 "/auth/login",
                                 "/auth/refresh",
                                 "/auth/verify",

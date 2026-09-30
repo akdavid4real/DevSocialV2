@@ -152,6 +152,26 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.error").value("Only the current session can be revoked individually"));
     }
 
+    @Test
+    void registersWithTheExistingUserResponseShape() throws Exception {
+        mockMvc.perform(post("/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "email": "NewUser@DevSocial.test",
+                                  "password": "secret1",
+                                  "username": "new_dev",
+                                  "firstName": "New",
+                                  "lastName": "Developer"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(LOCAL_USER_ID.toString()))
+                .andExpect(jsonPath("$.data.email").value("newuser@devsocial.test"))
+                .andExpect(jsonPath("$.data.username").value("new_dev"));
+    }
+
     private static String accessToken() {
         String payload = "{\"session_id\":\"" + SESSION_ID + "\"}";
         String encodedPayload = Base64.getUrlEncoder().withoutPadding()
@@ -235,6 +255,36 @@ class AuthControllerTest {
                 @Override
                 public SupabaseSession refresh(String refreshToken) {
                     return session();
+                }
+            };
+        }
+
+        @Bean
+        @Primary
+        SupabaseRegistrationGateway fakeSupabaseRegistration() {
+            return (email, password, metadata) -> SUPABASE_USER_ID;
+        }
+
+        @Bean
+        @Primary
+        RegistrationRepository fakeRegistrationRepository() {
+            return new RegistrationRepository() {
+                @Override
+                public Optional<UUID> findReferrer(String referralCode) {
+                    return Optional.of(UUID.randomUUID());
+                }
+
+                @Override
+                public Map<String, Object> createUser(RegistrationProfile profile) {
+                    return Map.of(
+                            "id", LOCAL_USER_ID,
+                            "email", profile.email(),
+                            "username", profile.username()
+                    );
+                }
+
+                @Override
+                public void completeReferral(String referralCode, UUID referrerId, UUID referredId) {
                 }
             };
         }

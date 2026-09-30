@@ -15,7 +15,8 @@ import java.util.UUID;
 
 @Component
 public class SupabaseRestIdentityProvider
-        implements SupabaseIdentityProvider, SupabaseSessionGateway, SupabaseAccountGateway {
+        implements SupabaseIdentityProvider, SupabaseSessionGateway, SupabaseAccountGateway,
+        SupabaseRegistrationGateway {
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -42,6 +43,29 @@ public class SupabaseRestIdentityProvider
     @Override
     public SupabaseSession refresh(String refreshToken) {
         return tokenRequest("refresh_token", Map.of("refresh_token", refreshToken));
+    }
+
+    @Override
+    public UUID signUp(String email, String password, Map<String, Object> metadata) {
+        requireConfiguration();
+        try {
+            SignupResponse response = restClient.post()
+                    .uri(supabaseUrl + "/auth/v1/signup")
+                    .header("apikey", serviceRoleKey)
+                    .body(Map.of("email", email, "password", password, "data", metadata))
+                    .retrieve()
+                    .body(SignupResponse.class);
+            if (response == null || response.user() == null || response.user().id() == null) {
+                throw new SupabaseAuthException("Failed to create auth user");
+            }
+            return response.user().id();
+        } catch (SupabaseAuthException exception) {
+            throw exception;
+        } catch (RestClientResponseException exception) {
+            throw new SupabaseAuthException(errorMessage(exception), exception);
+        } catch (RestClientException exception) {
+            throw new SupabaseAuthException("Failed to create auth user", exception);
+        }
     }
 
     @Override
@@ -208,5 +232,8 @@ public class SupabaseRestIdentityProvider
     }
 
     private record VerifyResponse(SupabaseUser user) {
+    }
+
+    private record SignupResponse(SupabaseUser user) {
     }
 }

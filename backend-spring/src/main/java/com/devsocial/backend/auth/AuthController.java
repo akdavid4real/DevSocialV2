@@ -24,17 +24,25 @@ public class AuthController {
     private final SessionAuthentication sessionAuthentication;
     private final AuthCookieFactory cookies;
     private final AccountManagement accountManagement;
+    private final Registration registration;
 
     public AuthController(
             CurrentUserQuery currentUserQuery,
             SessionAuthentication sessionAuthentication,
             AuthCookieFactory cookies,
-            AccountManagement accountManagement
+            AccountManagement accountManagement,
+            Registration registration
     ) {
         this.currentUserQuery = currentUserQuery;
         this.sessionAuthentication = sessionAuthentication;
         this.cookies = cookies;
         this.accountManagement = accountManagement;
+        this.registration = registration;
+    }
+
+    @PostMapping("/register")
+    java.util.Map<String, Object> register(@Valid @RequestBody RegisterRequest request) {
+        return registration.register(request);
     }
 
     @PostMapping("/login")
