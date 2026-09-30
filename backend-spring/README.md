@@ -129,6 +129,7 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2/users/dashboard` | Bearer | Period/lifetime post analytics, engagement, XP, ranking, challenge, notification, and activity charts |
 | `POST /api/v2/link-preview` | Public | Five-second HTML metadata fetch for the web post composer with relative-image resolution |
 | `GET, POST /api/v2/challenges/**` | Optional bearer / Bearer | Active and joined web challenges, staff creation, serialized progress rewards, and public leaderboards |
+| `POST /api/v2/posts/summarize`, `POST /api/v2/posts/explain`, `POST /api/v2/ai/enhance-text` | Bearer | Deterministic web writing assistance with serialized monthly limits and AI audit logs |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
@@ -158,5 +159,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 15. Web dashboard analytics
 16. Web link previews
 17. Web challenges
+18. Web AI writing assistance
 
 NestJS remains responsible for every route group until that entire group passes contract tests.
