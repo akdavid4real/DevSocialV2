@@ -13,6 +13,8 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -116,6 +118,128 @@ public class JdbcWebAccountSupport implements WebAccountSupport {
         Object resetsOn = account.usage().get("resetsOn");
         usage.put("resetsOn", resetsOn instanceof String ? resetsOn : null);
         return Map.of("data", usage);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> dashboard(UUID userId, String period) {
+        Instant start = dashboardStart(period);
+        Map<String, Object> user = jdbc.sql("""
+                        SELECT id, username, "displayName", avatar, points, level, badges, "createdAt",
+                               "loginStreak", "followersCount", "followingCount"
+                        FROM "User" WHERE id = :userId
+                        """).param("userId", userId).query((rs, row) -> dashboardUser(rs)).optional()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+        long rank = jdbc.sql("SELECT COUNT(*) + 1 FROM \"User\" WHERE points > :points")
+                .param("points", number(user.get("points"))).query(Long.class).single();
+        user.put("rank", rank);
+
+        PostAggregate periodPosts = postAggregate(userId, start);
+        PostAggregate lifetimePosts = postAggregate(userId, null);
+        long commentsCount = count("SELECT COUNT(*) FROM \"Comment\" WHERE \"authorId\" = :userId", userId);
+        long likesGiven = count("SELECT COUNT(*) FROM \"Like\" WHERE \"userId\" = :userId", userId);
+        long likesReceived = count("""
+                SELECT COUNT(*) FROM "Like" l JOIN "Post" p ON p.id = l."targetId"
+                WHERE p."authorId" = :userId AND l."targetType" = CAST('POST' AS "LikeTargetType")
+                """, userId);
+        long completedChallenges = count("""
+                SELECT COUNT(*) FROM "ChallengeParticipation"
+                WHERE "userId" = :userId AND status = CAST('COMPLETED' AS "ProgressStatus")
+                """, userId);
+        long unreadNotifications = count("""
+                SELECT COUNT(*) FROM "Notification" WHERE "recipientId" = :userId AND read = false
+                """, userId);
+
+        List<Map<String, Object>> xpBreakdown = jdbc.sql("""
+                        SELECT type::text AS type, COALESCE(SUM("xpAmount"), 0) AS total_xp, COUNT(*) AS count
+                        FROM "XpLog" WHERE "userId" = :userId AND "createdAt" >= :start
+                        GROUP BY type ORDER BY type
+                        """).param("userId", userId).param("start", Timestamp.from(start))
+                .query((rs, row) -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("type", rs.getString("type"));
+                    item.put("totalXP", rs.getDouble("total_xp"));
+                    item.put("count", rs.getLong("count"));
+                    return item;
+                }).list();
+        List<Map<String, Object>> recentActivities = jdbc.sql("""
+                        SELECT to_jsonb(activity_row)::text AS json FROM (
+                          SELECT id, "userId", type, description, metadata, "xpEarned", "createdAt"
+                          FROM "Activity" WHERE "userId" = :userId ORDER BY "createdAt" DESC LIMIT 8
+                        ) activity_row ORDER BY activity_row."createdAt" DESC
+                        """).param("userId", userId).query((rs, row) -> jsonMap(rs.getString("json"))).list();
+        Map<String, Object> topPost = jdbc.sql("""
+                        SELECT id, content, "likesCount", "commentsCount", "viewsCount"
+                        FROM "Post" WHERE "authorId" = :userId
+                        ORDER BY "likesCount" DESC, "commentsCount" DESC, "viewsCount" DESC, "createdAt" DESC
+                        LIMIT 1
+                        """).param("userId", userId).query((rs, row) -> {
+                    int likes = rs.getInt("likesCount");
+                    int comments = rs.getInt("commentsCount");
+                    int views = rs.getInt("viewsCount");
+                    Map<String, Object> post = new LinkedHashMap<>();
+                    post.put("id", rs.getObject("id", UUID.class));
+                    post.put("content", rs.getString("content"));
+                    post.put("likesCount", likes);
+                    post.put("commentsCount", comments);
+                    post.put("viewsCount", views);
+                    post.put("engagement", likes + comments + views);
+                    return post;
+                }).optional().orElse(null);
+        List<Map<String, Object>> dailyActivity = jdbc.sql("""
+                        SELECT activity_date::text AS date, COUNT(*) AS total_activities FROM (
+                          SELECT "createdAt"::date AS activity_date FROM "Post"
+                            WHERE "authorId" = :userId AND "createdAt" >= :start
+                          UNION ALL
+                          SELECT "createdAt"::date FROM "Comment"
+                            WHERE "authorId" = :userId AND "createdAt" >= :start
+                          UNION ALL
+                          SELECT "createdAt"::date FROM "Like"
+                            WHERE "userId" = :userId AND "createdAt" >= :start
+                        ) activity GROUP BY activity_date ORDER BY activity_date
+                        """).param("userId", userId).param("start", Timestamp.from(start))
+                .query((rs, row) -> {
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("date", rs.getString("date"));
+                    item.put("totalActivities", rs.getLong("total_activities"));
+                    return item;
+                }).list();
+
+        Map<String, Object> postStats = new LinkedHashMap<>();
+        postStats.put("totalPosts", periodPosts.count());
+        postStats.put("totalLikes", periodPosts.likes());
+        postStats.put("totalComments", periodPosts.comments());
+        postStats.put("totalViews", periodPosts.views());
+        postStats.put("avgLikes", average(periodPosts.likes(), periodPosts.count()));
+        postStats.put("avgComments", average(periodPosts.comments(), periodPosts.count()));
+        postStats.put("lifetimePosts", lifetimePosts.count());
+        postStats.put("lifetimeLikes", lifetimePosts.likes());
+        postStats.put("lifetimeComments", lifetimePosts.comments());
+        postStats.put("lifetimeViews", lifetimePosts.views());
+        postStats.put("lifetimeAvgEngagement",
+                average(lifetimePosts.likes() + lifetimePosts.comments(), lifetimePosts.count()));
+
+        Map<String, Object> engagement = new LinkedHashMap<>();
+        engagement.put("commentsCount", commentsCount);
+        engagement.put("likesGiven", likesGiven);
+        engagement.put("likesReceived", likesReceived);
+        engagement.put("followersCount", number(user.get("followersCount")));
+        engagement.put("followingCount", number(user.get("followingCount")));
+        engagement.put("topPost", topPost);
+
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("posts", postStats);
+        stats.put("engagement", engagement);
+        stats.put("xp", Map.of("total", number(user.get("points")), "breakdown", xpBreakdown));
+        stats.put("challenges", Map.of("completed", completedChallenges));
+        stats.put("notifications", Map.of("unreadCount", unreadNotifications));
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("user", user);
+        data.put("stats", stats);
+        data.put("charts", Map.of("period", period, "dailyActivity", dailyActivity));
+        data.put("recentActivities", recentActivities);
+        return Map.of("data", data);
     }
 
     @Override
@@ -269,6 +393,52 @@ public class JdbcWebAccountSupport implements WebAccountSupport {
         return Map.of("used", used, "limit", limit, "remaining", Math.max(limit - used, 0));
     }
 
+    private Instant dashboardStart(String period) {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        return switch (period) {
+            case "year" -> now.minusYears(1).toInstant();
+            case "month" -> now.minusMonths(1).toInstant();
+            default -> now.minusDays(7).toInstant();
+        };
+    }
+
+    private PostAggregate postAggregate(UUID userId, Instant start) {
+        String timeFilter = start == null ? "" : " AND \"createdAt\" >= :start";
+        JdbcClient.StatementSpec statement = jdbc.sql("""
+                        SELECT COUNT(*) AS count, COALESCE(SUM("likesCount"), 0) AS likes,
+                               COALESCE(SUM("commentsCount"), 0) AS comments,
+                               COALESCE(SUM("viewsCount"), 0) AS views
+                        FROM "Post" WHERE "authorId" = :userId
+                        """ + timeFilter).param("userId", userId);
+        if (start != null) statement = statement.param("start", Timestamp.from(start));
+        return statement.query((rs, row) -> new PostAggregate(rs.getLong("count"), rs.getLong("likes"),
+                rs.getLong("comments"), rs.getLong("views"))).single();
+    }
+
+    private long count(String sql, UUID userId) {
+        return jdbc.sql(sql).param("userId", userId).query(Long.class).single();
+    }
+
+    private double average(long value, long count) {
+        return count == 0 ? 0 : (double) value / count;
+    }
+
+    private Map<String, Object> dashboardUser(ResultSet rs) throws SQLException {
+        Map<String, Object> user = new LinkedHashMap<>();
+        user.put("id", rs.getObject("id", UUID.class));
+        user.put("username", rs.getString("username"));
+        user.put("displayName", rs.getString("displayName"));
+        user.put("avatar", rs.getString("avatar"));
+        user.put("points", rs.getInt("points"));
+        user.put("level", rs.getInt("level"));
+        user.put("badges", List.of((String[]) rs.getArray("badges").getArray()));
+        user.put("createdAt", rs.getTimestamp("createdAt").toInstant());
+        user.put("loginStreak", rs.getInt("loginStreak"));
+        user.put("followersCount", rs.getInt("followersCount"));
+        user.put("followingCount", rs.getInt("followingCount"));
+        return user;
+    }
+
     private record Affiliation(String subType, String name) {
     }
 
@@ -279,5 +449,8 @@ public class JdbcWebAccountSupport implements WebAccountSupport {
     }
 
     private record UsageAccount(Map<String, Object> usage, boolean premium) {
+    }
+
+    private record PostAggregate(long count, long likes, long comments, long views) {
     }
 }

@@ -82,6 +82,21 @@ class WebAccountControllerTest {
     }
 
     @Test
+    void dashboardRequiresAuthenticationAndKeepsItsNestedAnalyticsShape() throws Exception {
+        mockMvc.perform(get("/users/dashboard"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/users/dashboard").header(HttpHeaders.AUTHORIZATION, bearer())
+                        .param("period", "month"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.data.user.username").value("springdev"))
+                .andExpect(jsonPath("$.data.data.stats.posts.totalPosts").value(4))
+                .andExpect(jsonPath("$.data.data.stats.engagement.likesReceived").value(19))
+                .andExpect(jsonPath("$.data.data.stats.notifications.unreadCount").value(2))
+                .andExpect(jsonPath("$.data.data.charts.period").value("month"))
+                .andExpect(jsonPath("$.data.data.charts.dailyActivity[0].totalActivities").value(3));
+    }
+
+    @Test
     void dataExportKeepsTheExistingNestedDownloadEnvelope() throws Exception {
         mockMvc.perform(post("/users/export-data").header(HttpHeaders.AUTHORIZATION, bearer()))
                 .andExpect(status().isOk())
@@ -158,6 +173,21 @@ class WebAccountControllerTest {
             return Map.of("data", Map.of(
                     "summaries", Map.of("used", 2, "limit", 5, "remaining", 3),
                     "isPremium", false
+            ));
+        }
+
+        @Override
+        public Map<String, Object> dashboard(UUID userId, String period) {
+            return Map.of("data", Map.of(
+                    "user", Map.of("id", userId, "username", "springdev"),
+                    "stats", Map.of(
+                            "posts", Map.of("totalPosts", 4),
+                            "engagement", Map.of("likesReceived", 19),
+                            "notifications", Map.of("unreadCount", 2)
+                    ),
+                    "charts", Map.of("period", period,
+                            "dailyActivity", List.of(Map.of("date", "2026-09-30", "totalActivities", 3))),
+                    "recentActivities", List.of()
             ));
         }
 

@@ -4,6 +4,7 @@ import com.devsocial.backend.auth.AuthenticatedUser;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
@@ -29,6 +30,12 @@ public class WebAccountController {
     @GetMapping("/users/ai-usage")
     Map<String, Object> aiUsage(@AuthenticationPrincipal AuthenticatedUser principal) {
         return accounts.aiUsage(principal.userId());
+    }
+
+    @GetMapping("/users/dashboard")
+    Map<String, Object> dashboard(@AuthenticationPrincipal AuthenticatedUser principal,
+                                  @RequestParam(required = false) String period) {
+        return accounts.dashboard(principal.userId(), period == null ? "week" : period);
     }
 
     @PostMapping("/users/export-data")
