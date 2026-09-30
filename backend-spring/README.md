@@ -106,6 +106,9 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2/users/{username}/stats`, `GET /api/v2/users/{username}/activity-heatmap` | Optional bearer | Profile counters and the existing 84-day activity series |
 | `GET /api/v2/users/{username}/pinned-posts` | Optional bearer | Up to three active posts in the user's saved order |
 | `POST /api/v2/users/{username}/pin-post`, `DELETE /api/v2/users/{username}/unpin-post/{postId}` | Bearer | Owner-only, serialized pin mutations with the three-post cap |
+| `GET /api/v2/affiliations` | Public | Existing alphabetized affiliation lists grouped by subtype for web onboarding |
+| `GET /api/v2/auth/security-stats` | Bearer | Account age plus recorded login and security-event telemetry |
+| `POST /api/v2/users/export-data` | Bearer | Read-only account/content/activity JSON export without Supabase credentials |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.

@@ -37,13 +37,14 @@ public class SecurityConfiguration {
                                 "/auth/verify",
                                 "/auth/forgot-password"
                         ).permitAll()
-                        .requestMatchers("/users/search", "/users/leaderboard").permitAll()
+                        .requestMatchers("/users/search", "/users/leaderboard", "/affiliations").permitAll()
                         .requestMatchers(
                                 "/auth/me",
                                 "/auth/change-password",
                                 "/auth/delete-account",
                                 "/auth/logout",
                                 "/auth/logout-all",
+                                "/auth/security-stats",
                                 "/auth/sessions",
                                 "/auth/sessions/**"
                         ).authenticated()
@@ -60,6 +61,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/upload", "/storage/upload").authenticated()
                         .requestMatchers("/notifications", "/notifications/**").authenticated()
                         .requestMatchers("/messages", "/messages/**").authenticated()
+                        .requestMatchers("/users/export-data").authenticated()
                         .requestMatchers(HttpMethod.POST, "/users/*/pin-post").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/users/*/unpin-post/*").authenticated()
                         .requestMatchers(HttpMethod.GET, "/posts", "/posts/**", "/users/*/posts").permitAll()
