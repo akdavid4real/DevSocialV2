@@ -118,6 +118,9 @@ The following routes are implemented and verified in Spring:
 | `PUT /api/v2/projects/{id}/status`, `DELETE /api/v2/projects/{id}` | Bearer | Owner-only project lifecycle mutations |
 | `GET /api/v2/knowledge-bank`, `GET /api/v2/knowledge-bank/{id}` | Public | Filtered web knowledge catalog and author-enriched entry details |
 | `POST /api/v2/knowledge-bank` | Bearer | Validated knowledge publishing using the existing PostgreSQL schema |
+| `POST /api/v2/referrals/validate` | Public | Existing referral-code validation and safe referrer projection |
+| `GET /api/v2/referrals/code`, `GET /api/v2/referrals/stats` | Bearer | Serialized code creation plus reward/status summaries and recent referrals |
+| `POST /api/v2/referrals/expire-old` | Bearer | Expires overdue pending referrals using the existing lifecycle enum |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
@@ -140,5 +143,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 8. Web communities
 9. Web projects
 10. Web knowledge bank
+11. Web referrals
 
 NestJS remains responsible for every route group until that entire group passes contract tests.
