@@ -36,6 +36,7 @@ public class SecurityConfiguration {
                                 "/auth/verify",
                                 "/auth/forgot-password"
                         ).permitAll()
+                        .requestMatchers("/users/search", "/users/leaderboard").permitAll()
                         .requestMatchers(
                                 "/auth/me",
                                 "/auth/change-password",
@@ -44,6 +45,14 @@ public class SecurityConfiguration {
                                 "/auth/logout-all",
                                 "/auth/sessions",
                                 "/auth/sessions/**"
+                        ).authenticated()
+                        .requestMatchers(
+                                "/users/profile",
+                                "/users/onboarding",
+                                "/users/avatar/ready-player-me",
+                                "/users/appearance-settings",
+                                "/users/privacy",
+                                "/users/notification-settings"
                         ).authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

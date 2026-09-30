@@ -52,6 +52,15 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2/auth/sessions` | Bearer | Returns the current-session-only compatibility representation |
 | `DELETE /api/v2/auth/sessions/{id}` | Bearer | Restricts individual revocation to the current session |
 | `POST /api/v2/auth/logout-all` | Bearer | Revokes every Supabase session and clears the cookie |
+| `GET /api/v2/users/profile` | Bearer | Returns the existing full current-user profile shape |
+| `PATCH /api/v2/users/profile` | Bearer | Whitelisted profile fields with existing validation limits |
+| `GET, PUT /api/v2/users/onboarding` | Bearer | Existing stepwise updates and interest-based completion |
+| `POST /api/v2/users/avatar/ready-player-me` | Bearer | Validates and normalizes Ready Player Me URLs |
+| `GET, PUT /api/v2/users/appearance-settings` | Bearer | Existing defaults merged with JSONB settings |
+| `GET, PATCH /api/v2/users/privacy` | Bearer | Existing nested privacy-settings envelope |
+| `GET, PATCH /api/v2/users/notification-settings` | Bearer | Existing nested notification-settings envelope |
+| `GET /api/v2/users/search` | Public | Case-insensitive username, display-name, and bio search |
+| `GET /api/v2/users/leaderboard` | Public | Period filtering and clamped result limits |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
