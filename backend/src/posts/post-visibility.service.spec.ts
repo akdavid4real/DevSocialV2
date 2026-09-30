@@ -2,6 +2,41 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PostVisibilityService } from './post-visibility.service';
 
 describe('PostVisibilityService', () => {
+  it('counts a viewer once when they reopen the same post', async () => {
+    const tx: any = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      view: {
+        findFirst: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'view-1' }),
+        create: jest.fn().mockResolvedValue({ id: 'view-1' }),
+      },
+      post: { update: jest.fn().mockResolvedValue({}) },
+    };
+    const prisma: any = { $transaction: jest.fn((callback) => callback(tx)) };
+    const service = new PostVisibilityService(prisma);
+
+    await expect(service.trackUniqueView('post-1', 'viewer-1')).resolves.toBe(true);
+    await expect(service.trackUniqueView('post-1', 'viewer-1')).resolves.toBe(false);
+    expect(tx.view.create).toHaveBeenCalledTimes(1);
+    expect(tx.post.update).toHaveBeenCalledTimes(1);
+    expect(tx.post.update).toHaveBeenCalledWith({
+      where: { id: 'post-1' }, data: { viewsCount: { increment: 1 } },
+    });
+  });
+
+  it('does not record a view if acquiring the database lock fails', async () => {
+    const tx: any = {
+      $executeRaw: jest.fn().mockRejectedValue(new Error('Lock unavailable')),
+      view: { findFirst: jest.fn(), create: jest.fn() },
+      post: { update: jest.fn() },
+    };
+    const prisma: any = { $transaction: jest.fn((callback) => callback(tx)) };
+    const service = new PostVisibilityService(prisma);
+
+    await expect(service.trackUniqueView('post-1', 'viewer-1')).rejects.toThrow('Lock unavailable');
+    expect(tx.view.create).not.toHaveBeenCalled();
+    expect(tx.post.update).not.toHaveBeenCalled();
+  });
+
   it('hides posts from private profiles from anonymous viewers', async () => {
     const prisma: any = {
       post: {

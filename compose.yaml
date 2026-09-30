@@ -1,0 +1,33 @@
+name: devsocial
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: devsocial-backend:local
+    env_file:
+      - ./backend/.env
+    environment:
+      PORT: "3000"
+      # Local HTTP needs non-secure auth cookies. The image itself defaults to production.
+      NODE_ENV: development
+      DEV_AUTH_TEST_EMAIL: ${DEV_AUTH_TEST_EMAIL:-}
+      FRONTEND_URL: http://localhost:5173
+    ports:
+      - "127.0.0.1:3000:3000"
+    init: true
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api/v2
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:?Set VITE_SUPABASE_URL in .env.docker}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:?Set VITE_SUPABASE_ANON_KEY in .env.docker}
+        VITE_VAPID_PUBLIC_KEY: ${VITE_VAPID_PUBLIC_KEY:-}
+    image: devsocial-frontend:local
+    ports:
+      - "127.0.0.1:5173:8080"
+    depends_on:
+      backend:
+        condition: service_healthy

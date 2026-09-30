@@ -29,13 +29,14 @@ export default function SignupPage() {
         birthMonth: "",
         birthDay: "",
         affiliation: "",
-        affiliationType: "techBootcamps"
+        affiliationType: "Top_Bootcamps_Tech_Programmes"
     })
     const [acceptedTerms, setAcceptedTerms] = useState(false)
     const [error, setError] = useState("")
     const [loading, setLoading] = useState(false)
     const [affiliations, setAffiliations] = useState<Record<string, string[]>>({})
     const [loadingAffiliations, setLoadingAffiliations] = useState(true)
+    const [affiliationsError, setAffiliationsError] = useState(false)
     const [affiliationOpen, setAffiliationOpen] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
@@ -56,33 +57,20 @@ export default function SignupPage() {
         const fetchAffiliations = async () => {
             try {
                 const response = await getAffiliations();
-                // Response from interceptor is already the data if success
-                // Based on backend interceptor: { success: true, data: { ... } }
-                if (response && typeof response === 'object') {
-                    // Check if it's the raw flat map or wrapped
-                    const data = response.data || response;
-                    setAffiliations(data || {});
-                } else {
-                    // Provide fallback affiliations if API fails
-                    setAffiliations({
-                        techBootcamps: ['Other', 'General Assembly', 'Lambda School', 'App Academy'],
-                        federal: ['Other', 'University of Lagos', 'University of Ibadan', 'Ahmadu Bello University'],
-                        state: ['Other', 'Lagos State University', 'Rivers State University'],
-                        privateUniversities: ['Other', 'Covenant University', 'Babcock University'],
-                        affiliatedInstitutions: ['Other', 'Various Affiliated Institutions'],
-                        distanceLearning: ['Other', 'National Open University']
-                    });
+                const data = response.data || response;
+                if (!data || typeof data !== "object" || !Object.values(data).every(Array.isArray)) {
+                    throw new Error("Invalid affiliations response");
                 }
-            } catch (error: any) {
-                console.error("Failed to fetch affiliations:", error);
                 setAffiliations({
-                    techBootcamps: ['Other', 'General Assembly', 'Lambda School', 'App Academy'],
-                    federal: ['Other', 'University of Lagos', 'University of Ibadan', 'Ahmadu Bello University'],
-                    state: ['Other', 'Lagos State University', 'Rivers State University'],
-                    privateUniversities: ['Other', 'Covenant University', 'Babcock University'],
-                    affiliatedInstitutions: ['Other', 'Various Affiliated Institutions'],
-                    distanceLearning: ['Other', 'National Open University']
+                    ...data,
+                    Top_Bootcamps_Tech_Programmes: Array.from(new Set([
+                        ...(data.Top_Bootcamps_Tech_Programmes || []),
+                        ...(data.NIIT_Centres || []),
+                    ])).sort((a, b) => a.localeCompare(b)),
                 });
+            } catch (error: unknown) {
+                console.error("Failed to fetch affiliations:", error);
+                setAffiliationsError(true);
             } finally {
                 setLoadingAffiliations(false);
             }
@@ -140,7 +128,8 @@ export default function SignupPage() {
             <div className="absolute top-4 right-4 z-50">
                 <ThemeToggle />
             </div>
-            <Card className="w-full max-w-md shadow-xl border bg-card text-card-foreground">
+            <div className="mx-auto grid w-full max-w-[1440px] items-start gap-8 lg:grid-cols-[minmax(0,448px)_minmax(0,1fr)] lg:gap-12">
+            <Card className="mx-auto w-full max-w-md shadow-xl border bg-card text-card-foreground">
                 <CardHeader className="text-center">
                     <div className="mx-auto w-12 h-12 bg-gradient-to-br from-emerald-400 to-emerald-600 dark:from-emerald-500 dark:to-emerald-700 rounded-lg flex items-center justify-center mb-4">
                         <span className="text-foreground font-bold text-xl">TC</span>
@@ -275,7 +264,7 @@ export default function SignupPage() {
                                         role="combobox"
                                         aria-expanded={affiliationOpen}
                                         className="w-full justify-between font-normal"
-                                        disabled={loadingAffiliations || !formData.affiliationType}
+                                        disabled={loadingAffiliations || affiliationsError || !formData.affiliationType}
                                     >
                                         {formData.affiliation
                                             ? affiliations[formData.affiliationType]?.find(
@@ -283,7 +272,9 @@ export default function SignupPage() {
                                             )
                                             : loadingAffiliations
                                                 ? "Loading..."
-                                                : "Search and select your affiliation..."}
+                                                : affiliationsError
+                                                    ? "Unable to load affiliations. Please refresh."
+                                                    : "Search and select your affiliation..."}
                                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                     </Button>
                                 </PopoverTrigger>
@@ -405,6 +396,23 @@ export default function SignupPage() {
                     </div>
                 </CardContent>
             </Card>
+            <aside className="sticky top-12 hidden h-[calc(100svh-6rem)] min-h-[520px] overflow-hidden rounded-3xl border border-border/60 bg-muted shadow-xl lg:block">
+                <img
+                    src="/images/african-developers-signup.webp"
+                    alt="African software developers collaborating around laptops in a bright coworking studio"
+                    className="h-full w-full object-cover object-center"
+                    width={1536}
+                    height={1024}
+                    fetchPriority="high"
+                />
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/10 to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 p-8 text-white xl:p-12">
+                    <p className="mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">The DevSocial community</p>
+                    <h2 className="max-w-lg text-3xl font-semibold leading-tight tracking-tight xl:text-4xl">Build together.<br />Grow together.</h2>
+                    <p className="mt-4 max-w-md text-base leading-relaxed text-slate-200">Meet developers, share what you're learning, and turn your next idea into something real.</p>
+                </div>
+            </aside>
+            </div>
         </div>
     )
 }

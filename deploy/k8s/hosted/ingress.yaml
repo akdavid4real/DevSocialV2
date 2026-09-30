@@ -1,0 +1,20 @@
+# Replace the domain, ingress class, and TLS secret to match your cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: devsocial
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [devsocial.example.com]
+      secretName: devsocial-tls
+  rules:
+    - host: devsocial.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port: {number: 8080}

@@ -1,0 +1,29 @@
+# Publish the first :latest images from Jenkins before creating this Blueprint.
+# Supply server secrets in Render, never in this file or frontend build arguments.
+services:
+  - type: web
+    name: devsocial-api
+    runtime: image
+    plan: free
+    image:
+      url: ghcr.io/akdavid4real/devsocial-backend:latest
+    healthCheckPath: /api/v2
+    envVars:
+      - {key: NODE_ENV, value: production}
+      - {key: PORT, value: "3000"}
+      - {key: DEV_AUTH_TEST_EMAIL, value: ""}
+      - {key: DATABASE_URL, sync: false}
+      - {key: SUPABASE_URL, sync: false}
+      - {key: SUPABASE_SERVICE_ROLE_KEY, sync: false}
+      - {key: FRONTEND_URL, sync: false}
+  - type: web
+    name: devsocial-web
+    runtime: image
+    plan: free
+    image:
+      url: ghcr.io/akdavid4real/devsocial-frontend:latest
+    healthCheckPath: /healthz
+    envVars:
+      - {key: PORT, value: "8080"}
+      # Full HTTPS URL of the API service, with no trailing slash.
+      - {key: API_UPSTREAM, sync: false}

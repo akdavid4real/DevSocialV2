@@ -1,5 +1,5 @@
 import { IsString, IsArray, IsEnum, IsOptional, MaxLength } from 'class-validator';
-import { ExperienceLevel, Gender } from '@prisma/client';
+import { ExperienceLevel, Gender } from '../../../generated/prisma';
 
 export class UpdateOnboardingDto {
     @IsOptional()

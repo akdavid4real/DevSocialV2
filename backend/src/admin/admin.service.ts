@@ -14,7 +14,7 @@ import {
   AdminResetPasswordDto,
   GetAiLogsQueryDto,
 } from './dto/admin.dto';
-import { UserRole, ReportStatus, PostStatus } from '@prisma/client';
+import { UserRole, ReportStatus, PostStatus } from '../generated/prisma';
 
 @Injectable()
 export class AdminService {

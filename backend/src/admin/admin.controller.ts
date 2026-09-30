@@ -16,7 +16,7 @@ import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '../generated/prisma';
 import type { AuthenticatedRequest } from '../common/interfaces/request.interface';
 import {
   UpdateUserRoleDto,

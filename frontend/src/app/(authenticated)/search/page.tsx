@@ -25,6 +25,7 @@ export default function SearchPage() {
     const [searchResults, setSearchResults] = useState<SearchResults>({ posts: [], users: [], tags: [] })
     const [isSearching, setIsSearching] = useState(false)
     const [hasSearched, setHasSearched] = useState(false)
+    const [searchError, setSearchError] = useState(false)
 
     const performSearch = useCallback(async (query: string) => {
         if (!query.trim()) {
@@ -34,9 +35,13 @@ export default function SearchPage() {
         }
 
         setIsSearching(true)
+        setSearchError(false)
         try {
             const response: any = await api.get(`/search?q=${encodeURIComponent(query)}&type=all`)
-            const results = response.data?.results || response.results || { posts: [], users: [], tags: [] }
+            const results = response.data?.data?.results || response.data?.results || response.results
+            if (!results || !['posts', 'users', 'tags'].every(key => Array.isArray(results[key]))) {
+                throw new Error('Invalid search response')
+            }
             setSearchResults({
                 posts: results.posts || [],
                 users: results.users || [],
@@ -46,6 +51,8 @@ export default function SearchPage() {
         } catch (error) {
             console.error('[SEARCH] Error:', error)
             setSearchResults({ posts: [], users: [], tags: [] })
+            setHasSearched(false)
+            setSearchError(true)
         } finally {
             setIsSearching(false)
         }
@@ -100,13 +107,15 @@ export default function SearchPage() {
                     <input
                         type="text"
                         placeholder="Search for posts, users, or topics..."
+                        aria-label="Search posts, users, or topics"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full h-14 pl-12 pr-12 rounded-[20px] bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-[border-color,box-shadow]"
                     />
                     {searchQuery && (
                         <button
-                            onClick={() => setSearchQuery('')}
+                            aria-label="Clear search"
+                            onClick={() => { setSearchQuery(''); setSearchError(false) }}
                             className="absolute right-4 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-[background-color]"
                         >
                             <X className="h-4 w-4 text-muted-foreground" />
@@ -129,6 +138,12 @@ export default function SearchPage() {
                     </div>
                 )}
             </div>
+
+            {searchError && !isSearching && searchQuery && (
+                <p role="alert" className="rounded-xl border border-destructive/30 p-4 text-sm text-destructive">
+                    Search couldn't load. Please try again.
+                </p>
+            )}
 
             {/* Search Results */}
             {hasSearched && !isSearching && (
