@@ -9,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -24,7 +25,11 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.BAD_REQUEST, request, errors);
     }
 
-    @ExceptionHandler({ConstraintViolationException.class, HttpMessageNotReadableException.class})
+    @ExceptionHandler({
+            ConstraintViolationException.class,
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class
+    })
     ResponseEntity<ApiError> handleBadRequest(Exception exception, HttpServletRequest request) {
         return error(HttpStatus.BAD_REQUEST, request, exception.getMessage());
     }
@@ -47,4 +52,3 @@ public class GlobalExceptionHandler {
         return error.getDefaultMessage() == null ? error.getField() + " is invalid" : error.getDefaultMessage();
     }
 }
-

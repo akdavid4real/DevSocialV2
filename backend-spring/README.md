@@ -61,6 +61,21 @@ The following routes are implemented and verified in Spring:
 | `GET, PATCH /api/v2/users/notification-settings` | Bearer | Existing nested notification-settings envelope |
 | `GET /api/v2/users/search` | Public | Case-insensitive username, display-name, and bio search |
 | `GET /api/v2/users/leaderboard` | Public | Period filtering and clamped result limits |
+| `GET /api/v2/users/{username}` | Optional bearer | Public profile with private-profile and bidirectional-block enforcement |
+| `GET /api/v2/profile-access/{username}` | Optional bearer | Non-sensitive profile summary and follow-request state |
+| `POST, DELETE /api/v2/follow/{userId}` | Bearer | Public follows or private follow requests with atomic counters |
+| `GET /api/v2/follow/{userId}/is-following` | Bearer | Follow and pending-request state |
+| `GET /api/v2/follow/{userId}/followers` | Bearer | Paginated follower list |
+| `GET /api/v2/follow/{userId}/following` | Bearer | Paginated following list |
+| `GET /api/v2/follow/{userId}/mutual-followers` | Bearer | Up to ten mutual connections |
+| `GET /api/v2/follow/requests/incoming` | Bearer | Paginated pending requests received by the current user |
+| `GET /api/v2/follow/requests/outgoing` | Bearer | Paginated pending requests sent by the current user |
+| `POST /api/v2/follow/requests/{id}/accept` | Bearer | Atomically accepts a request and creates the follow relationship |
+| `POST /api/v2/follow/requests/{id}/reject` | Bearer | Rejects a pending incoming request |
+| `DELETE /api/v2/follow/requests/{id}` | Bearer | Cancels a pending outgoing request |
+| `GET /api/v2/users/blocked` | Bearer | Existing nested blocked-user response shape |
+| `POST /api/v2/users/block/{userId}` | Bearer | Removes both follow directions and repairs counters atomically |
+| `DELETE /api/v2/users/unblock/{userId}` | Bearer | Removes the current user's block |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
@@ -73,8 +88,8 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 1. Compatibility and deployment foundation
 2. Supabase authentication and current-user lookup
 3. Users and onboarding
-4. Storage
-5. Follows, blocks, and privacy
+4. Follows, blocks, and privacy
+5. Storage
 6. Posts, comments, and likes
 7. Search and trending
 

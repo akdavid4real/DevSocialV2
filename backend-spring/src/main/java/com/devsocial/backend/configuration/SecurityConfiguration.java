@@ -54,6 +54,9 @@ public class SecurityConfiguration {
                                 "/users/privacy",
                                 "/users/notification-settings"
                         ).authenticated()
+                        .requestMatchers("/follow/**", "/users/blocked", "/users/block/**", "/users/unblock/**")
+                        .authenticated()
+                        .requestMatchers("/profile-access/*", "/users/*").permitAll()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
