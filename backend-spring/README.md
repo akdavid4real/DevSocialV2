@@ -76,6 +76,8 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2/users/blocked` | Bearer | Existing nested blocked-user response shape |
 | `POST /api/v2/users/block/{userId}` | Bearer | Removes both follow directions and repairs counters atomically |
 | `DELETE /api/v2/users/unblock/{userId}` | Bearer | Removes the current user's block |
+| `POST /api/v2/upload` | Bearer | Magic-byte validation, Supabase Storage upload, and durable asset ownership |
+| `POST /api/v2/storage/upload` | Bearer | Compatibility alias used by the existing comment uploader |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.

@@ -56,6 +56,7 @@ public class SecurityConfiguration {
                         ).authenticated()
                         .requestMatchers("/follow/**", "/users/blocked", "/users/block/**", "/users/unblock/**")
                         .authenticated()
+                        .requestMatchers("/upload", "/storage/upload").authenticated()
                         .requestMatchers("/profile-access/*", "/users/*").permitAll()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

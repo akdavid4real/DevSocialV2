@@ -11,6 +11,10 @@ spring:
     exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   lifecycle:
     timeout-per-shutdown-phase: 45s
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
 
 devsocial:
   cors:
