@@ -1,0 +1,26 @@
+server:
+  port: ${PORT:3001}
+  servlet:
+    context-path: /api/v2
+  shutdown: graceful
+
+spring:
+  application:
+    name: devsocial-backend-spring
+  lifecycle:
+    timeout-per-shutdown-phase: 45s
+
+devsocial:
+  cors:
+    origins: ${CORS_ORIGINS:${FRONTEND_URL:http://localhost:5173}}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
