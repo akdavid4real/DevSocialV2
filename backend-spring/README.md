@@ -97,6 +97,10 @@ The following routes are implemented and verified in Spring:
 | `PUT /api/v2/notifications/mark-read`, `PUT /api/v2/notifications/mark-unread` | Bearer | Recipient-scoped bulk updates capped at 100 notification IDs |
 | `GET, POST, DELETE /api/v2/notifications/push-subscription` | Bearer | Backward-compatible web-push state in the existing User JSONB field |
 | `POST, DELETE /api/v2/notifications/mobile-push-token` | Bearer | Validated Expo token registration with deduplication and five-device cap |
+| `GET, POST /api/v2/messages/conversations` | Bearer | Direct-conversation lookup/creation with block and messaging-privacy enforcement |
+| `POST /api/v2/messages`, `GET /api/v2/messages/{conversationId}` | Bearer | Transactional send and chronological cursor history using the existing realtime tables |
+| `GET /api/v2/messages/unread-count`, `PATCH /api/v2/messages/{conversationId}/read` | Bearer | Recipient-scoped unread count and read updates |
+| `POST, DELETE /api/v2/messages/{conversationId}/{messageId}/reactions` | Bearer | Participant-only serialized JSONB reaction updates |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
