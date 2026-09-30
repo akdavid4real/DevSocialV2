@@ -77,6 +77,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/referrals/validate").permitAll()
                         .requestMatchers("/referrals/**").authenticated()
                         .requestMatchers("/feedback", "/feedback/**").authenticated()
+                        .requestMatchers("/reports", "/reports/**").authenticated()
                         .requestMatchers(HttpMethod.GET,
                                 "/users/*/activities",
                                 "/users/*/liked-posts",
