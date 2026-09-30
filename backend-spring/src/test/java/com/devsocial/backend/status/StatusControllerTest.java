@@ -28,6 +28,8 @@ class StatusControllerTest {
     @Test
     void deniesUnmigratedRoutesByDefault() throws Exception {
         mockMvc.perform(get("/not-migrated"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.statusCode").value(401));
     }
 }
