@@ -113,12 +113,15 @@ The following routes are implemented and verified in Spring:
 | `POST /api/v2/communities`, `POST /api/v2/communities/{idOrSlug}/join` | Bearer | Community creation plus public membership or private join-request workflow |
 | `GET /api/v2/communities/{idOrSlug}/posts`, `POST /api/v2/communities/{idOrSlug}/posts` | Optional bearer / Bearer | Private-community access checks and member-only community publishing |
 | `/api/v2/communities/invitations/**`, `/api/v2/communities/**/join-requests/**`, `/api/v2/communities/**/invites/**` | Bearer | Web invitation inbox and creator/moderator membership review workflow |
+| `GET /api/v2/projects`, `GET /api/v2/projects/{id}` | Optional bearer | Public web project discovery/detail and once-per-visitor daily view tracking |
+| `GET /api/v2/projects/me`, `POST /api/v2/projects` | Bearer | Owner project dashboard statistics and validated project creation |
+| `PUT /api/v2/projects/{id}/status`, `DELETE /api/v2/projects/{id}` | Bearer | Owner-only project lifecycle mutations |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
 
-The core `posts` and web `communities` controller groups are Spring-owned. AI post analysis
-remains separately owned by its NestJS route group until documented here.
+The core `posts`, web `communities`, and web `projects` controller groups are Spring-owned.
+AI post analysis remains separately owned by its NestJS route group until documented here.
 
 Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY`. The Spring implementation does not create or migrate tables.
@@ -133,5 +136,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 6. Posts, comments, and likes
 7. Search and trending
 8. Web communities
+9. Web projects
 
 NestJS remains responsible for every route group until that entire group passes contract tests.

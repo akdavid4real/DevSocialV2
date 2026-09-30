@@ -69,6 +69,9 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/communities", "/communities/*", "/communities/*/posts")
                         .permitAll()
                         .requestMatchers("/communities", "/communities/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/projects/me").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/projects", "/projects/*").permitAll()
+                        .requestMatchers("/projects", "/projects/**").authenticated()
                         .requestMatchers(HttpMethod.GET,
                                 "/users/*/activities",
                                 "/users/*/liked-posts",

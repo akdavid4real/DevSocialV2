@@ -79,13 +79,16 @@ public class JdbcCommunities implements Communities {
                           (id, name, slug, description, category, tags, "creatorId", "isPrivate", rules,
                            "memberCount", "postCount", "createdAt", "updatedAt")
                         VALUES (:id, :name, :slug, :description, CAST(:category AS "CommunityCategory"),
-                                :tags, :creatorId, :isPrivate, :rules, 1, 0, :now, :now)
+                                ARRAY(SELECT jsonb_array_elements_text(CAST(:tags AS jsonb))),
+                                :creatorId, :isPrivate,
+                                ARRAY(SELECT jsonb_array_elements_text(CAST(:rules AS jsonb))),
+                                1, 0, :now, :now)
                         """)
                 .param("id", id).param("name", request.name().trim()).param("slug", slug)
                 .param("description", request.description().trim()).param("category", request.category())
-                .param("tags", strings(request.tags())).param("creatorId", userId)
+                .param("tags", toJson(request.tags() == null ? List.of() : request.tags())).param("creatorId", userId)
                 .param("isPrivate", Boolean.TRUE.equals(request.isPrivate()))
-                .param("rules", strings(nonBlank(request.rules()))).param("now", Timestamp.from(now)).update();
+                .param("rules", toJson(nonBlank(request.rules()))).param("now", Timestamp.from(now)).update();
         jdbc.sql("""
                         INSERT INTO "CommunityMember" ("communityId", "userId", role, "joinedAt")
                         VALUES (:communityId, :userId, CAST('CREATOR' AS "CommunityMemberRole"), :now)
@@ -387,7 +390,7 @@ public class JdbcCommunities implements Communities {
                 "commentsCount", rs.getLong("actual_comments"), "viewsCount", rs.getInt("viewsCount"),
                 "xpAwarded", rs.getInt("xpAwarded"), "status", rs.getString("status"), "slug", rs.getString("slug"),
                 "metaTitle", rs.getString("metaTitle"), "metaDescription", rs.getString("metaDescription"),
-                "poll", json(rs.getString("poll")), "createdAt", instant(rs, "createdAt"), "updatedAt", instant(rs, "updatedAt"),
+                "poll", parseJson(rs.getString("poll")), "createdAt", instant(rs, "createdAt"), "updatedAt", instant(rs, "updatedAt"),
                 "isLiked", rs.getBoolean("liked"));
         post.put("author", mapNullable("id", rs.getObject("user_id", UUID.class), "username", rs.getString("username"),
                 "displayName", rs.getString("displayName"), "avatar", rs.getString("avatar"),
@@ -492,8 +495,6 @@ public class JdbcCommunities implements Communities {
         return values == null ? List.of() : values.stream().filter(value -> value != null && !value.isBlank()).toList();
     }
 
-    private String[] strings(List<String> values) { return (values == null ? List.<String>of() : values).toArray(String[]::new); }
-
     private List<String> array(ResultSet rs, String column) throws SQLException {
         Array value = rs.getArray(column);
         return value == null ? List.of() : List.of((String[]) value.getArray());
@@ -503,7 +504,15 @@ public class JdbcCommunities implements Communities {
         Timestamp timestamp = rs.getTimestamp(column); return timestamp == null ? null : timestamp.toInstant();
     }
 
-    private Object json(String value) {
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalArgumentException("Community data is not valid JSON", exception);
+        }
+    }
+
+    private Object parseJson(String value) {
         if (value == null) return null;
         try {
             return objectMapper.readValue(value, new TypeReference<Object>() { });
