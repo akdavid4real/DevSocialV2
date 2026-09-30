@@ -84,13 +84,19 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2/posts/{postId}/comments` | Optional bearer | Paginated top-level comments with viewer-like state |
 | `GET /api/v2/posts/comments/{commentId}/replies` | Optional bearer | Paginated replies after parent-post visibility checks |
 | `GET /api/v2/users/{username}/posts` | Optional bearer | Existing username privacy/block rules and user post list |
+| `POST /api/v2/posts` | Bearer | Transactional post, tag, mention, XP/activity, community, and asset creation |
+| `DELETE /api/v2/posts/{postId}` | Bearer | Author-only deletion and asset detachment |
+| `POST /api/v2/posts/{postId}/like` | Bearer | Visibility-aware like toggle, activity, and post-commit notification |
+| `POST /api/v2/posts/{postId}/comments` | Bearer | Thread validation, rate limiting, XP, mentions, assets, and notifications |
+| `DELETE /api/v2/posts/comments/{commentId}` | Bearer | Author-only comment deletion and asset detachment |
+| `POST /api/v2/posts/comments/{commentId}/like` | Bearer | Atomic like counter and recipient XP changes |
+| `POST /api/v2/posts/{postId}/poll/vote` | Bearer | Serializable poll validation, vote update, and XP award |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
 
-For the partially migrated `posts` group, route by HTTP method as well as path: only the
-documented `GET` routes are Spring-owned. Post, comment, like, and poll mutations remain on
-NestJS until their XP, mention, notification, moderation, and asset-attachment invariants pass.
+The core `posts` controller group is Spring-owned. AI post analysis and community-specific
+post routes remain separately owned by their NestJS route groups until documented here.
 
 Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY`. The Spring implementation does not create or migrate tables.

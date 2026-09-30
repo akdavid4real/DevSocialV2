@@ -59,6 +59,7 @@ public class SecurityConfiguration {
                         .authenticated()
                         .requestMatchers("/upload", "/storage/upload").authenticated()
                         .requestMatchers(HttpMethod.GET, "/posts", "/posts/**", "/users/*/posts").permitAll()
+                        .requestMatchers("/posts", "/posts/**").authenticated()
                         .requestMatchers("/profile-access/*", "/users/*").permitAll()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

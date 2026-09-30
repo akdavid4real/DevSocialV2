@@ -23,6 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -95,12 +96,66 @@ class ContentControllerTest {
     }
 
     @Test
-    void contentWritesRemainDeniedUntilTheirMutationInvariantsAreMigrated() throws Exception {
+    void contentWritesRequireAuthentication() throws Exception {
+        mockMvc.perform(post("/posts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"protected\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void postCreateDeleteAndLikeKeepTheirResponseShapes() throws Exception {
         mockMvc.perform(post("/posts")
                         .header(HttpHeaders.AUTHORIZATION, bearer())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"content\":\"not routed yet\"}"))
-                .andExpect(status().isForbidden());
+                        .content("{\"content\":\"Hello #java\",\"imageUrls\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(POST_ID.toString()))
+                .andExpect(jsonPath("$.data.content").value("Hello #java"));
+        mockMvc.perform(post("/posts/{id}/like", POST_ID).header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.liked").value(true));
+        mockMvc.perform(delete("/posts/{id}", POST_ID).header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(POST_ID.toString()));
+    }
+
+    @Test
+    void commentMutationsAndPollVotingKeepTheirResponseShapes() throws Exception {
+        mockMvc.perform(post("/posts/{id}/comments", POST_ID)
+                        .header(HttpHeaders.AUTHORIZATION, bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"Nice post\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(COMMENT_ID.toString()))
+                .andExpect(jsonPath("$.data.xpAwarded").value(5));
+        mockMvc.perform(post("/posts/comments/{id}/like", COMMENT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.liked").value(true))
+                .andExpect(jsonPath("$.data.likesCount").value(1));
+        mockMvc.perform(delete("/posts/comments/{id}", COMMENT_ID)
+                        .header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(COMMENT_ID.toString()));
+        mockMvc.perform(post("/posts/{id}/poll/vote", POST_ID)
+                        .header(HttpHeaders.AUTHORIZATION, bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"optionIds\":[\"java\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.xpAwarded").value(5))
+                .andExpect(jsonPath("$.data.poll.totalVotes").value(1));
+    }
+
+    @Test
+    void commentLengthValidationUsesTheCompatibilityEnvelope() throws Exception {
+        String content = "x".repeat(501);
+        mockMvc.perform(post("/posts/{id}/comments", POST_ID)
+                        .header(HttpHeaders.AUTHORIZATION, bearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"" + content + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error[0]").value("Comment cannot exceed 500 characters"));
     }
 
     private static String bearer() {
@@ -138,6 +193,12 @@ class ContentControllerTest {
         @Primary
         ContentQueries contentQueries() {
             return new FakeContentQueries();
+        }
+
+        @Bean
+        @Primary
+        ContentCommands contentCommands() {
+            return new FakeContentCommands();
         }
     }
 
@@ -194,6 +255,43 @@ class ContentControllerTest {
             value.put("parentId", parentId);
             value.put("content", "A comment");
             return value;
+        }
+    }
+
+    private static class FakeContentCommands implements ContentCommands {
+        @Override
+        public Map<String, Object> createPost(UUID actorId, CreatePostRequest request) {
+            return Map.of("id", POST_ID, "content", request.content());
+        }
+
+        @Override
+        public Map<String, Object> deletePost(UUID actorId, UUID postId) {
+            return Map.of("id", postId, "authorId", actorId);
+        }
+
+        @Override
+        public Map<String, Object> togglePostLike(UUID actorId, UUID postId) {
+            return Map.of("liked", true);
+        }
+
+        @Override
+        public Map<String, Object> addComment(UUID actorId, UUID postId, CreateCommentRequest request) {
+            return Map.of("id", COMMENT_ID, "content", request.content(), "xpAwarded", 5);
+        }
+
+        @Override
+        public Map<String, Object> deleteComment(UUID actorId, UUID commentId) {
+            return Map.of("id", commentId, "authorId", actorId);
+        }
+
+        @Override
+        public Map<String, Object> toggleCommentLike(UUID actorId, UUID commentId) {
+            return Map.of("liked", true, "likesCount", 1, "xpChange", 1, "isOwnComment", false);
+        }
+
+        @Override
+        public Map<String, Object> vote(UUID actorId, UUID postId, PollVoteRequest request) {
+            return Map.of("poll", Map.of("totalVotes", 1), "xpAwarded", 5);
         }
     }
 }
