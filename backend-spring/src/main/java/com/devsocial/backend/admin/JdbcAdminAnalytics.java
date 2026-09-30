@@ -1,10 +1,8 @@
 package com.devsocial.backend.admin;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -15,26 +13,23 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 @Repository
 public class JdbcAdminAnalytics implements AdminAnalytics {
-    private static final Set<String> OVERVIEW_ROLES = Set.of("ADMIN", "MODERATOR", "ANALYTICS");
-    private static final Set<String> ANALYTICS_ROLES = Set.of("ADMIN", "ANALYTICS");
-
     private final JdbcClient jdbc;
+    private final AdminRolePolicy roles;
 
-    public JdbcAdminAnalytics(JdbcClient jdbc) {
+    public JdbcAdminAnalytics(JdbcClient jdbc, AdminRolePolicy roles) {
         this.jdbc = jdbc;
+        this.roles = roles;
     }
 
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> dashboard(UUID actorId) {
-        requireRole(actorId, OVERVIEW_ROLES);
+        roles.require(actorId, AdminRolePolicy.STAFF_OR_ANALYTICS);
         Instant now = Instant.now();
         Timestamp today = Timestamp.from(LocalDate.now(ZoneId.systemDefault())
                 .atStartOfDay(ZoneId.systemDefault()).toInstant());
@@ -64,7 +59,7 @@ public class JdbcAdminAnalytics implements AdminAnalytics {
     @Override
     @Transactional(readOnly = true)
     public List<Map<String, Object>> userGrowth(UUID actorId, int days) {
-        requireRole(actorId, ANALYTICS_ROLES);
+        roles.require(actorId, AdminRolePolicy.ADMIN_OR_ANALYTICS);
         Timestamp start = Timestamp.from(Instant.now().minus(days, ChronoUnit.DAYS));
         return jdbc.sql("""
                         SELECT "createdAt", COUNT(*) AS count FROM "User"
@@ -77,7 +72,7 @@ public class JdbcAdminAnalytics implements AdminAnalytics {
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> aiLogs(UUID actorId, int page, int limit, String service, String taskType) {
-        requireRole(actorId, ANALYTICS_ROLES);
+        roles.require(actorId, AdminRolePolicy.ADMIN_OR_ANALYTICS);
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         Map<String, Object> parameters = new LinkedHashMap<>();
         if (service != null && !service.isBlank()) {
@@ -107,17 +102,6 @@ public class JdbcAdminAnalytics implements AdminAnalytics {
                         "avgExecutionTime", rs.getInt("average"))).list();
         return map("data", logs, "meta", map("total", total, "page", page, "limit", limit,
                         "totalPages", (int) Math.ceil((double) total / limit)), "stats", stats);
-    }
-
-    static boolean roleAllowed(String role, Set<String> allowed) {
-        return role != null && allowed.contains(role.toUpperCase(Locale.ROOT));
-    }
-
-    private void requireRole(UUID actorId, Set<String> allowed) {
-        String role = jdbc.sql("SELECT role::text FROM \"User\" WHERE id = :id")
-                .param("id", actorId).query(String.class).optional().orElse(null);
-        if (!roleAllowed(role, allowed))
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Insufficient permissions");
     }
 
     private Map<String, Object> aiLog(ResultSet rs, int row) throws SQLException {

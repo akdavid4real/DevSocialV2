@@ -12,10 +12,10 @@ class JdbcAdminAnalyticsRoleTest {
         Set<String> overview = Set.of("ADMIN", "MODERATOR", "ANALYTICS");
         Set<String> analytics = Set.of("ADMIN", "ANALYTICS");
 
-        assertThat(JdbcAdminAnalytics.roleAllowed("moderator", overview)).isTrue();
-        assertThat(JdbcAdminAnalytics.roleAllowed("MODERATOR", analytics)).isFalse();
-        assertThat(JdbcAdminAnalytics.roleAllowed("ADMIN", analytics)).isTrue();
-        assertThat(JdbcAdminAnalytics.roleAllowed("USER", overview)).isFalse();
-        assertThat(JdbcAdminAnalytics.roleAllowed(null, overview)).isFalse();
+        assertThat(AdminRolePolicy.roleAllowed("moderator", overview)).isTrue();
+        assertThat(AdminRolePolicy.roleAllowed("MODERATOR", analytics)).isFalse();
+        assertThat(AdminRolePolicy.roleAllowed("ADMIN", analytics)).isTrue();
+        assertThat(AdminRolePolicy.roleAllowed("USER", overview)).isFalse();
+        assertThat(AdminRolePolicy.roleAllowed(null, overview)).isFalse();
     }
 }

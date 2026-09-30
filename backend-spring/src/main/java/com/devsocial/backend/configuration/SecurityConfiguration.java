@@ -88,8 +88,11 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET,
                                 "/admin/dashboard/stats",
                                 "/admin/dashboard/user-growth",
-                                "/admin/ai-logs"
+                                "/admin/ai-logs",
+                                "/admin/reports",
+                                "/admin/reports/*"
                         ).authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/admin/reports/*/resolve").authenticated()
                         .requestMatchers(HttpMethod.GET,
                                 "/users/*/activities",
                                 "/users/*/liked-posts",
