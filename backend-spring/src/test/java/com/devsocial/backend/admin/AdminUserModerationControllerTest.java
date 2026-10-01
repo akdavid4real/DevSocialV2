@@ -45,6 +45,9 @@ class AdminUserModerationControllerTest {
                         .content("{\"reason\":\"spam\"}"))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/admin/users/{id}/unban", TARGET_ID)).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/admin/users/{id}/reset-password", TARGET_ID).contentType("application/json")
+                        .content("{\"newPassword\":\"new-password\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -59,6 +62,11 @@ class AdminUserModerationControllerTest {
         mockMvc.perform(post("/admin/users/{id}/unban", TARGET_ID)
                         .header(HttpHeaders.AUTHORIZATION, bearer()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.isBlocked").value(false));
+        mockMvc.perform(post("/admin/users/{id}/reset-password", TARGET_ID)
+                        .header(HttpHeaders.AUTHORIZATION, bearer()).contentType("application/json")
+                        .content("{\"newPassword\":\"new-password\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.message").value("Password reset successfully"));
     }
 
     @Test
@@ -68,6 +76,10 @@ class AdminUserModerationControllerTest {
                 .andExpect(status().isBadRequest());
         mockMvc.perform(post("/admin/users/{id}/ban", TARGET_ID).header(HttpHeaders.AUTHORIZATION, bearer())
                         .contentType("application/json").content("{\"reason\":\"\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/admin/users/{id}/reset-password", TARGET_ID)
+                        .header(HttpHeaders.AUTHORIZATION, bearer()).contentType("application/json")
+                        .content("{\"newPassword\":\"short\"}"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -98,6 +110,9 @@ class AdminUserModerationControllerTest {
                 }
                 public Map<String, Object> unban(UUID actorId, UUID userId) {
                     return Map.of("id", userId, "isBlocked", false);
+                }
+                public Map<String, Object> resetPassword(UUID actorId, UUID userId, String newPassword) {
+                    return Map.of("success", true, "message", "Password reset successfully");
                 }
             };
         }

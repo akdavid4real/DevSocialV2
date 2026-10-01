@@ -9,4 +9,6 @@ interface AdminUserModeration {
     Map<String, Object> ban(UUID actorId, UUID userId, BanAdminUserRequest request);
 
     Map<String, Object> unban(UUID actorId, UUID userId);
+
+    Map<String, Object> resetPassword(UUID actorId, UUID userId, String newPassword);
 }

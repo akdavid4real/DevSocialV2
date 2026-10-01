@@ -39,4 +39,10 @@ public class AdminUserModerationController {
             @PathVariable UUID userId) {
         return moderation.unban(principal.userId(), userId);
     }
+
+    @PostMapping("/reset-password")
+    Map<String, Object> resetPassword(@AuthenticationPrincipal AuthenticatedUser principal,
+            @PathVariable UUID userId, @Valid @RequestBody AdminResetPasswordRequest request) {
+        return moderation.resetPassword(principal.userId(), userId, request.newPassword());
+    }
 }

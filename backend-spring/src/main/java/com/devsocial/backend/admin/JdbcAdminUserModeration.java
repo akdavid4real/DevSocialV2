@@ -1,5 +1,7 @@
 package com.devsocial.backend.admin;
 
+import com.devsocial.backend.auth.SupabaseAccountGateway;
+import com.devsocial.backend.auth.SupabaseAuthException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,11 +23,14 @@ public class JdbcAdminUserModeration implements AdminUserModeration {
     private final JdbcClient jdbc;
     private final ObjectMapper objectMapper;
     private final AdminRolePolicy roles;
+    private final SupabaseAccountGateway supabaseAccounts;
 
-    public JdbcAdminUserModeration(JdbcClient jdbc, ObjectMapper objectMapper, AdminRolePolicy roles) {
+    public JdbcAdminUserModeration(JdbcClient jdbc, ObjectMapper objectMapper, AdminRolePolicy roles,
+            SupabaseAccountGateway supabaseAccounts) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.roles = roles;
+        this.supabaseAccounts = supabaseAccounts;
     }
 
     @Override
@@ -57,6 +62,25 @@ public class JdbcAdminUserModeration implements AdminUserModeration {
         Map<String, Object> updated = update(userId, "\"isBlocked\" = :value", false);
         audit(actorId, "USER_UNBAN", userId, null, null);
         return updated;
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> resetPassword(UUID actorId, UUID userId, String newPassword) {
+        roles.require(actorId, AdminRolePolicy.ADMIN_ONLY);
+        PasswordTarget target = jdbc.sql("""
+                        SELECT username, "supabaseAuthId" FROM "User" WHERE id = :id FOR UPDATE
+                        """).param("id", userId).query((rs, row) -> new PasswordTarget(
+                        rs.getString("username"), UUID.fromString(rs.getString("supabaseAuthId"))))
+                .optional().orElseThrow(this::notFound);
+        try {
+            supabaseAccounts.updatePassword(target.supabaseId(), newPassword);
+        } catch (SupabaseAuthException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to reset user password", exception);
+        }
+        audit(actorId, "USER_PASSWORD_RESET", userId, "Password reset for @" + target.username(), null);
+        return map("success", true, "message", "Password reset successfully");
     }
 
     private String currentRole(UUID userId) {
@@ -107,4 +131,6 @@ public class JdbcAdminUserModeration implements AdminUserModeration {
     private ResponseStatusException notFound() {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
     }
+
+    private record PasswordTarget(String username, UUID supabaseId) { }
 }
