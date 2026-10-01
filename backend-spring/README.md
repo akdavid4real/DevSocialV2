@@ -145,7 +145,17 @@ All other routes remain owned by NestJS. A gateway must only send the route grou
 above to Spring; Spring denies unmigrated routes by default.
 
 The core `posts`, web `communities`, web `projects`, and web `knowledge-bank` controller groups
-are Spring-owned. AI post analysis remains separately owned by its NestJS route group until documented here.
+are Spring-owned.
+
+## Deliberate NestJS ownership
+
+- Every `/api/v2/missions/**` route remains on NestJS; Spring has no mission module or route access.
+- `DELETE /api/v2/admin/users/{id}` remains on NestJS because its existing cleanup contract includes
+  `MissionProgress`, which has no user foreign key or database cascade.
+- `PUT /api/v2/admin/users/{id}/xp` remains on NestJS because it is not called by the web client.
+- `/api/v2/admin/bots` is not implemented by the existing NestJS controller despite the current web page call;
+  the migration does not invent a replacement contract.
+- `POST /api/v2/auth/dev/verify` remains a NestJS development-only route.
 
 Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 `SUPABASE_SERVICE_ROLE_KEY`. The Spring implementation does not create or migrate tables.

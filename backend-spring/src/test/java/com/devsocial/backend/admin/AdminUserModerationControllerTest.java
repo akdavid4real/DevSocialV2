@@ -22,6 +22,8 @@ import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -81,6 +83,17 @@ class AdminUserModerationControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, bearer()).contentType("application/json")
                         .content("{\"newPassword\":\"short\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void missionAndUnmigratedAdminRoutesRemainDenied() throws Exception {
+        mockMvc.perform(get("/missions").header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete("/admin/users/{id}", TARGET_ID)
+                        .header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/bots").header(HttpHeaders.AUTHORIZATION, bearer()))
+                .andExpect(status().isForbidden());
     }
 
     private static String bearer() {
