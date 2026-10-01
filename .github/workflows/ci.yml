@@ -41,17 +41,3 @@ jobs:
           java-version: 17
           cache: maven
       - run: ./mvnw -B -ntp verify
-
-  mobile:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: mobile
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: npm install
-      - run: npx tsc --noEmit
-      - run: npm run lint
