@@ -95,6 +95,9 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.PUT, "/admin/reports/*/resolve").authenticated()
                         .requestMatchers(HttpMethod.GET, "/admin/posts", "/admin/audit-logs").authenticated()
                         .requestMatchers(HttpMethod.GET, "/admin/users", "/admin/users/*").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/admin/users/*/role").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/admin/users/*/ban", "/admin/users/*/unban")
+                        .authenticated()
                         .requestMatchers(HttpMethod.PUT, "/admin/posts/*/status").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/admin/posts/*").authenticated()
                         .requestMatchers(HttpMethod.GET,

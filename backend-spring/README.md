@@ -137,6 +137,8 @@ The following routes are implemented and verified in Spring:
 | `GET /api/v2/admin/posts`, `PUT /api/v2/admin/posts/{id}/status`, `DELETE /api/v2/admin/posts/{id}` | Bearer + staff role | Filtered post moderation, transactional status/delete actions, and audit records |
 | `GET /api/v2/admin/audit-logs` | Bearer + admin role | Paginated administrative audit history |
 | `GET /api/v2/admin/users`, `GET /api/v2/admin/users/{id}` | Bearer + staff role | Searchable user directory and enriched moderation details |
+| `PUT /api/v2/admin/users/{id}/role` | Bearer + admin role | Transactional role changes with an audit record |
+| `POST /api/v2/admin/users/{id}/ban`, `POST /api/v2/admin/users/{id}/unban` | Bearer + staff role | Admin-safe account blocking with moderation audit records |
 
 All other routes remain owned by NestJS. A gateway must only send the route groups listed
 above to Spring; Spring denies unmigrated routes by default.
@@ -171,5 +173,6 @@ Authentication continues to use the existing `DATABASE_URL`, `SUPABASE_URL`, and
 20. Web admin report moderation
 21. Web admin content moderation and audit logs
 22. Web admin user directory and details
+23. Web admin role and ban moderation
 
 NestJS remains responsible for every route group until that entire group passes contract tests.
