@@ -3,21 +3,24 @@ name: devsocial
 services:
   backend:
     build:
-      context: ./backend
+      context: ./backend-spring
     image: devsocial-backend:local
     env_file:
-      - ./backend/.env
+      - ./backend-spring/.env
     environment:
-      PORT: "3000"
+      PORT: "3001"
       # Local HTTP needs non-secure auth cookies. The image itself defaults to production.
       NODE_ENV: development
-      DEV_AUTH_TEST_EMAIL: ${DEV_AUTH_TEST_EMAIL:-}
       FRONTEND_URL: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173
+      AUTH_COOKIE_SAME_SITE: lax
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3001:3001"
     init: true
 
   frontend:
+    environment:
+      API_UPSTREAM: http://backend:3001
     build:
       context: ./frontend
       args:

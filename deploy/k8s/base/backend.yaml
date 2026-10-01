@@ -10,30 +10,30 @@ spec:
     metadata:
       labels: {app: backend}
     spec:
-      terminationGracePeriodSeconds: 45
+      terminationGracePeriodSeconds: 60
       containers:
         - name: backend
           image: devsocial-backend:local
           imagePullPolicy: IfNotPresent
-          ports: [{containerPort: 3000, name: http}]
+          ports: [{containerPort: 3001, name: http}]
           envFrom:
             - secretRef: {name: backend-env}
           env:
             - {name: NODE_ENV, value: production}
-            - {name: PORT, value: "3000"}
-            - {name: DEV_AUTH_TEST_EMAIL, value: ""}
+            - {name: PORT, value: "3001"}
+            - {name: AUTH_COOKIE_SAME_SITE, value: lax}
           resources:
             requests: {cpu: 100m, memory: 256Mi}
             limits: {cpu: "1", memory: 768Mi}
           startupProbe:
-            httpGet: {path: /api/v2, port: http}
+            httpGet: {path: /api/v2/actuator/health/readiness, port: http}
             periodSeconds: 5
             failureThreshold: 36
           readinessProbe:
-            httpGet: {path: /api/v2, port: http}
+            httpGet: {path: /api/v2/actuator/health/readiness, port: http}
             periodSeconds: 10
           livenessProbe:
-            httpGet: {path: /api/v2, port: http}
+            httpGet: {path: /api/v2/actuator/health/liveness, port: http}
             periodSeconds: 20
           securityContext:
             runAsNonRoot: true
@@ -47,4 +47,4 @@ metadata:
   name: backend
 spec:
   selector: {app: backend}
-  ports: [{port: 3000, targetPort: http}]
+  ports: [{port: 3001, targetPort: http}]

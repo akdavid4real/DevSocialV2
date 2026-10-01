@@ -10,3 +10,6 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value: {name: FRONTEND_URL, value: "http://localhost:5174"}
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: CORS_ORIGINS, value: "http://localhost:5174"}

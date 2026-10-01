@@ -1,10 +1,12 @@
 # Coursework deployment
 
 Jenkins runs the root `Jenkinsfile`; it is separate from GitHub Actions.
-The pipeline builds both existing apps, runs the startup/auth/post-visibility
-regression tests, pushes versioned Docker images to GHCR, and optionally deploys
-to Kubernetes and requests Render deployments. The regression stage is a targeted
-suite, not a claim that all existing backend tests pass.
+The pipeline builds the Spring Boot API in `backend-spring/` and the existing web
+frontend. It runs the complete Maven/JUnit 5 suite in a Java 17 container, archives
+Surefire XML results in Jenkins, pushes versioned Docker images to GHCR, and
+optionally deploys to Kubernetes and requests Render deployments. Java and Maven
+do not need to be installed on the Jenkins controller; Maven Wrapper is included.
+The legacy NestJS backend is not built or deployed by this pipeline.
 
 ## Zero-cost, no-card route
 
@@ -24,6 +26,8 @@ a suitable persistent cluster and a dedicated test database.
 
 The Jenkins image includes Docker CLI, kubectl, and Pipeline/Git plugins. The
 controller uses the host Docker daemon for this single-user coursework setup.
+The Jenkins image includes the JUnit plugin. For an existing controller, install
+that plugin through Manage Jenkins → Plugins if it is not already installed.
 Jobs therefore have control of Docker on your machine: only run trusted code.
 The web interface is bound to localhost, and Jenkins data persists in its volume.
 
@@ -36,9 +40,10 @@ docker compose -f deploy/jenkins/compose.yaml exec jenkins \
 
 Open http://localhost:8081, unlock Jenkins, and finish its setup wizard yourself.
 Create a **Pipeline** job using **Pipeline script from SCM**, Git repository
-`https://github.com/akdavid4real/DevSocialV2.git`, your branch, and `Jenkinsfile`
-as the script path. Commit the deployment files and both Bun lockfiles first so
-the checkout contains them. For a local single-user demo, give the built-in node
+`https://github.com/akdavid4real/DevSocialV2.git`, branch specifier `*/main`, and
+`Jenkinsfile` as the script path. Push the updated main branch before running the
+SCM job: local commits alone are not available to Jenkins checkout.
+For a local single-user demo, give the built-in node
 one executor. Builds use the host's CPU and memory; leave sufficient headroom.
 
 This repository is private. The local Jenkins controller now has a read-only
@@ -81,9 +86,12 @@ Supabase service-role configuration and frontend URL in Render. Set the web
 service's `API_UPSTREAM` to the backend's full HTTPS origin, with no trailing
 slash (for example `https://devsocial-api-EXAMPLE.onrender.com`).
 
-Free services can sleep, so the first request may be slow. Keep the development
-email bypass disabled: both Render and the production Kubernetes manifests set
-`NODE_ENV=production` and clear `DEV_AUTH_TEST_EMAIL`.
+The API image runs Java 17 on port 3001; its heap is bounded relative to container
+memory. Health checks use `/api/v2/actuator/health/readiness`. Set `FRONTEND_URL`
+and `CORS_ORIGINS` to the web origin. `NODE_ENV=production` is retained because
+Spring's cookie handling uses it to require secure cookies. Spring does not
+provide the old development email-verification bypass. Free services can sleep,
+so the first request may be slow.
 
 After both services exist, save their deploy hooks in Jenkins. Enabling
 `DEPLOY_RENDER` sends the same versioned image tags to Render; a successful hook
@@ -107,7 +115,7 @@ credentials. In the lab terminal, run `kubectl apply -f devsocial-lab.yaml`, the
 `kubectl -n devsocial rollout status deployment/frontend --timeout=180s`.
 
 Open port **30080** through Killercoda's traffic/port access controls. Add that
-frontend origin to the backend's `FRONTEND_URL` allowlist if needed. Lab URLs are
+frontend origin to the backend's `CORS_ORIGINS` allowlist if needed. Lab URLs are
 ephemeral. Do not upload production credentials or kubeconfigs to Killercoda.
 
 Demonstrate deployments, services, replicas and recovery:
@@ -127,7 +135,7 @@ optional Jenkins Kubernetes stage targets a separately accessible cluster.
 ## Full cluster deployment
 
 On a configured cluster, use a dedicated test environment file, containing the
-backend variables described in `backend/.env.example` and its HTTPS frontend URL:
+backend variables described in `backend-spring/.env.example` and its HTTPS frontend URL:
 
 ```bash
 bash scripts/deploy-k8s.sh YOUR_CONTEXT \
@@ -137,13 +145,37 @@ bash scripts/deploy-k8s.sh YOUR_CONTEXT \
 ```
 
 This creates the `backend-env` Secret and waits for both deployments. Subsequent
-Jenkins deployments reuse that Secret. To expose the full app with an Ingress,
+Jenkins deployments reuse that Secret. If migrating an existing Nest deployment,
+refresh the Secret using a Spring environment file before the first Spring rollout;
+do not assume the existing Secret contains the right CORS/cookie configuration.
+The frontend proxies to `http://backend:3001`. Readiness includes PostgreSQL health;
+liveness checks only application health, not database availability.
+To expose the full app with an Ingress,
 configure the domain, installed ingress class, and TLS secret in
 `k8s/hosted/ingress.yaml`, then use `hosted` instead of `base`. Kubernetes Secrets
 need restricted access and suitable cluster encryption; never commit them.
 
 For local testing, use overlay `local` and port-forward the frontend service:
 `kubectl -n devsocial port-forward service/frontend 5174:8080`.
+This overlay sets the HTTP frontend/CORS origin and development cookie behavior.
+No schema migration or database seeding runs automatically.
+
+## Verify without deploying
+
+```bash
+docker compose --env-file .env.docker config --quiet
+kubectl kustomize deploy/k8s/base > /dev/null
+kubectl kustomize deploy/k8s/local > /dev/null
+kubectl kustomize deploy/k8s/hosted > /dev/null
+kubectl kustomize deploy/k8s/lab --load-restrictor=LoadRestrictionsNone > /dev/null
+cd backend-spring
+./mvnw verify
+```
+
+In Jenkins, leave all publish/deploy parameters disabled for the first validation
+build. The Maven stage copies test reports out even on a test failure; missing
+reports fail the job instead of silently hiding a broken test stage. The production
+Docker build also runs Maven verification before producing the runtime image.
 
 References: [Jenkins Docker installation](https://www.jenkins.io/doc/book/installing/docker/),
 [Render image deployment](https://render.com/docs/deploying-an-image),

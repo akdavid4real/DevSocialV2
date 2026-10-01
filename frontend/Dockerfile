@@ -21,7 +21,7 @@ ARG VITE_VAPID_PUBLIC_KEY
 RUN bun run build
 
 FROM nginxinc/nginx-unprivileged:1.28-alpine AS runtime
-ENV API_UPSTREAM=http://backend:3000 NGINX_ENVSUBST_FILTER="^(API_UPSTREAM|DNS_RESOLVER)$"
+ENV API_UPSTREAM=http://backend:3001 NGINX_ENVSUBST_FILTER="^(API_UPSTREAM|DNS_RESOLVER)$"
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --chmod=755 docker-entrypoint.d/15-api-env.envsh /docker-entrypoint.d/15-api-env.envsh
 COPY --from=build /app/dist /usr/share/nginx/html

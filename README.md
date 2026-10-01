@@ -1,154 +1,122 @@
 # DevSocial V2
 
-DevSocial is a developer community platform for sharing posts, joining communities, building projects, and tracking learning progress.
+DevSocial is a developer community platform for posts, communities, projects, and learning.
 
 ## Apps
 
-- `backend/` — NestJS API with Prisma and PostgreSQL
-- `frontend/` — React + Vite web app
-- `mobile/` — Expo mobile app
+- `backend-spring/` — current web API: Spring Boot, Java 17, Maven Wrapper, JUnit 5.
+- `frontend/` — React + Vite web app.
+- `backend/` — legacy NestJS backend and existing Prisma tooling; not deployed by the current pipeline.
+- `mobile/` — unchanged Expo mobile app.
+
+The previous main version is preserved on `legacy/nestjs`; the original coursework
+setup remains on `coursework/jenkins-kubernetes`.
 
 ## Run locally
 
-Install dependencies in each application:
-
-```powershell
-cd backend; bun install
-cd ../frontend; bun install
-cd ../mobile; bun install
-```
-
-Copy each `.env.example` file to its local `.env` equivalent and add your own environment values. Then run:
-
-```powershell
-# API
-cd backend; bun run start:dev
-
-# Web app
-cd frontend; bun run dev
-
-# Mobile app
-cd mobile; bun run start
-```
-
-The web app is available at `http://localhost:5173`. Ensure `VITE_API_URL` points to the backend API, including its `/api/v2` path.
-
-## Run the web app and API with Docker
-
-Requires Docker Engine/Desktop with Compose v2 or newer. Run these commands from
-the repository root (the mobile app stays outside Docker):
+Put the existing database/Supabase configuration in `backend-spring/.env`.
+Spring loads it automatically when started from that directory:
 
 ```bash
-# First-time setup; don't overwrite an existing backend/.env.
-cp -n backend/.env.example backend/.env
+cd backend-spring
+./mvnw spring-boot:run
+```
+
+In another terminal, configure `frontend/.env.local` with public
+`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and
+`VITE_API_URL=http://localhost:3001/api/v2`, then:
+
+```bash
+cd frontend
+bun install --frozen-lockfile
+bun run dev
+```
+
+The frontend normally runs at http://localhost:5173 and the API at
+http://localhost:3001/api/v2. Keep `CORS_ORIGINS` in the backend env file aligned
+with your actual frontend origin. Mobile setup is unchanged.
+
+## Docker: web frontend and Spring API
+
+Requires Docker with Compose v2. From the repository root:
+
+```bash
+# First-time setup only; preserve existing environment files.
+cp -n backend-spring/.env.example backend-spring/.env
 cp -n .env.docker.example .env.docker
 ```
 
-Fill `backend/.env` with your existing database URL, Supabase URL, and service-role
-key. Fill `.env.docker` with the matching **public** Supabase URL and anon key;
-the VAPID public key is optional. Docker excludes all `.env` files from builds.
-For Docker on an IPv4-only network, use **Supabase → Connect → Session pooler**
-for `DATABASE_URL` (port 5432). The direct `db.<project-ref>.supabase.co` endpoint
-normally requires IPv6. Copy the exact pooler hostname and username from the
-Connect dialog; the hostname cannot be inferred reliably from the project region.
-Keep your database password, percent-encoding any reserved URL characters.
-Never put the service-role key, database password, or VAPID private key in a
-`VITE_` variable: Vite embeds those values in browser JavaScript.
+Fill `backend-spring/.env` with your existing database URL, Supabase URL, and
+service-role key. Fill `.env.docker` with the matching public Supabase URL and anon
+key. Never put database credentials, service-role keys, or private push keys in
+`VITE_` variables: those are embedded in browser JavaScript.
+
+Use the exact Supabase connection details for your existing database. If your
+Docker network cannot reach its direct IPv6 database endpoint, use the connection
+details supplied by your project for its session pooler; do not guess the host.
 
 ```bash
+docker compose --env-file .env.docker config --quiet
 docker compose --env-file .env.docker up --build -d
 docker compose --env-file .env.docker ps
 docker compose --env-file .env.docker logs -f
 ```
 
-Open **http://localhost:5173**. The frontend proxies `/api/` to the backend;
-you can also check the API directly at http://localhost:3000/api/v2.
-Ports are bound to localhost. Stop the containers with:
+Open http://localhost:5173. The frontend proxies `/api/` to Spring on port 3001.
+The API can also be checked directly:
 
 ```bash
-docker compose --env-file .env.docker down
+curl --fail http://localhost:3001/api/v2/actuator/health/readiness
 ```
 
-If the API exits, inspect `docker compose --env-file .env.docker logs backend`.
-`P1001` / `DatabaseNotReachable` means the database connection needs checking;
-in particular, check the IPv4/session-pooler setting above. After changing only
-`backend/.env`, run `docker compose --env-file .env.docker up -d` to recreate the
-backend with the new environment. No image rebuild is needed.
+Compose uses development cookies for local HTTP. Production images default to
+secure cookies and require HTTPS frontend origins. Spring does not implement
+the legacy development email-verification bypass; use normal Supabase verification.
 
-This runs compiled app images, without hot reload. After editing source, run
-`up --build -d` again. To rebuild only the changed app:
+No database container, migrations, repair scripts, or automatic seeding are run.
+The existing PostgreSQL schema and Supabase project are unchanged.
+
+After source edits, rebuild with `up --build -d`. After changing only
+`backend-spring/.env`, recreate with `up -d` (no image rebuild needed).
+Frontend `VITE_` changes require rebuilding the frontend image.
+Inspect backend connection/startup failures with:
 
 ```bash
-docker compose --env-file .env.docker up --build -d --no-deps frontend
-# Or replace frontend with backend.
+docker compose --env-file .env.docker logs backend
 ```
 
-The API still uses your configured database and Supabase services. No database
-container is provisioned and no migrations or repair scripts run automatically.
-Use an already initialized development project. The existing app may seed its
-affiliations catalogue at startup if the table is empty. The Compose setup uses
-`NODE_ENV=development` for local HTTP auth cookies, while the backend image itself
-defaults to production. Use HTTPS and production settings when deploying it.
+Stop the containers with `docker compose --env-file .env.docker down`.
 
-For a test email without an inbox, set `DEV_AUTH_TEST_EMAIL` in `.env.docker`
-to that account's email, then recreate the backend. After registering the account,
-confirm it locally using:
+### Build behavior
 
-```bash
-curl --fail-with-body http://localhost:3000/api/v2/auth/dev/verify \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"your-configured-test-email@example.test"}'
-```
-
-Then sign in with that email and the password chosen during signup. This confirms
-the account in Supabase and the app database; normal password authentication still
-applies. The endpoint requires `NODE_ENV=development` and an exact match with the
-configured email. Clear `DEV_AUTH_TEST_EMAIL` and recreate the backend to disable
-the endpoint. An account already confirmed remains confirmed.
-
-### How the Docker builds stay small and fast
-
-- Each app has its own build context and an allowlist in `.dockerignore`. The
-  builder never receives the whole repository, local `node_modules`, credentials,
-  backups, or the mobile app. Prisma's client is generated inside the build.
-- Dependency manifests are copied before source, so source edits reuse the
-  dependency layers. BuildKit also caches Bun downloads when dependencies change.
-- Frozen Bun lockfiles make installs reproducible. Commit both apps' `bun.lock`
-  files alongside the Dockerfiles, including the existing local lockfile changes.
-- Multi-stage builds keep compilers and build tools outside the final images.
-  The API runs on Node with production dependencies; the web image contains only
-  compiled static files and nginx. Both run as non-root users.
-- Frontend public configuration is supplied after dependency installation, so
-  changing it rebuilds the web bundle without reinstalling dependencies.
-
-The first build downloads base images and packages; later builds reuse them.
-Avoid `--no-cache` or deleting the builder cache for routine rebuilds. Changes to
-frontend public variables require a rebuild because they are compiled into Vite's
-output. This Compose setup is for local Docker; it is not a Kubernetes deployment
-or a Vercel deployment configuration.
-
-References: [Docker build cache optimization](https://docs.docker.com/build/cache/optimize/)
-and [multi-stage build guidance](https://docs.docker.com/build/building/best-practices/).
+- Each app has its own build context; local environment files and build output are excluded.
+- Maven dependencies are downloaded before source copying to reuse builder layers.
+- The Spring Docker build runs `./mvnw verify`, including the full JUnit 5 suite.
+- The runtime image contains Java 17 and the executable JAR, not Maven or source.
+- The frontend uses its frozen Bun lockfile and runs its TypeScript/Vite production build.
+- Both runtime images run as non-root users. Mobile is outside the build.
 
 ## Jenkins, Kubernetes and Render
 
-The coursework pipeline, Kubernetes manifests, and Render Free blueprint are
-included. See [deployment setup](deploy/README.md) for local Jenkins and the
-free hosted Kubernetes lab route. Infrastructure files alone do not provision
-a hosted cluster or Render services.
+See [deployment setup](deploy/README.md). The root Jenkinsfile now targets Spring
+and the web frontend, with JUnit reports and optional image publishing/deployments.
+Configure the SCM branch as `*/main` after pushing your local changes.
+Infrastructure files alone do not provision or update external services.
 
-## Database
+Kubernetes uses Spring readiness/liveness endpoints and port 3001. The disposable
+lab continues to run only the frontend, connected to the Render API.
 
-After configuring `DATABASE_URL` in `backend/.env`:
+## Tests
 
-```powershell
-cd backend
-bunx prisma generate
-bun run seed:affiliations
+```bash
+cd backend-spring
+./mvnw verify
 ```
 
-The affiliation seed is safe to run again; it only inserts missing catalogue entries.
+For the frontend, run `bun run build` from `frontend/`.
 
-## Security
+## Database and security
 
-Never commit filled `.env` files, API keys, or database exports.
+Use the existing initialized database. Legacy Prisma scripts in `backend/` are
+available for intentional maintenance, but are not executed by Docker/Jenkins.
+Never commit filled environment files, private keys, database exports, or kubeconfigs.

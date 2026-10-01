@@ -42,22 +42,27 @@ pipeline {
         sh 'docker version && kubectl kustomize deploy/k8s/base > /dev/null'
       }
     }
-    stage('Backend regression checks') {
+    stage('Spring Maven and JUnit 5 checks') {
       steps {
+        dir('backend-spring/target/ci-reports') { deleteDir() }
         sh '''
           set -eu
-          docker build --target build -t "devsocial-ci-tests:$IMAGE_TAG" backend
+          docker build --target build-env -t "devsocial-ci-tests:$IMAGE_TAG" backend-spring
           TEST_CONTAINER=$(docker create "devsocial-ci-tests:$IMAGE_TAG" \
-            bun run test --runInBand app.module.spec.ts auth.service.spec.ts post-visibility.service.spec.ts)
+            ./mvnw -B -ntp verify)
           trap 'docker rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true' EXIT
-          # Specs are deliberately excluded from the production build context.
-          # Copy just these three into the disposable test container.
-          docker cp backend/src/app.module.spec.ts "$TEST_CONTAINER:/app/src/app.module.spec.ts"
-          docker cp backend/src/auth/auth.service.spec.ts "$TEST_CONTAINER:/app/src/auth/auth.service.spec.ts"
-          docker cp backend/src/posts/post-visibility.service.spec.ts "$TEST_CONTAINER:/app/src/posts/post-visibility.service.spec.ts"
-          docker start --attach "$TEST_CONTAINER"
+          # Preserve XML reports even when Maven reports failing tests.
+          docker start --attach "$TEST_CONTAINER" || true
+          test "$(docker inspect --format '{{.State.Status}}' "$TEST_CONTAINER")" = exited
+          mkdir -p backend-spring/target/ci-reports
+          docker cp "$TEST_CONTAINER:/app/target/surefire-reports/." backend-spring/target/ci-reports/
           exit "$(docker inspect --format '{{.State.ExitCode}}' "$TEST_CONTAINER")"
         '''
+      }
+      post {
+        always {
+          junit testResults: 'backend-spring/target/ci-reports/TEST-*.xml', allowEmptyResults: false
+        }
       }
     }
     stage('Build application images') {
@@ -65,7 +70,7 @@ pipeline {
         withEnv(["VITE_SUPABASE_URL=${params.SUPABASE_URL}", "VITE_SUPABASE_ANON_KEY=${params.SUPABASE_ANON_KEY}"]) {
           sh '''
             set -eu
-            docker build -t "$BACKEND_IMAGE" backend
+            docker build -t "$BACKEND_IMAGE" backend-spring
             docker build -t "$FRONTEND_IMAGE" \
               --build-arg VITE_API_URL=/api/v2 \
               --build-arg VITE_SUPABASE_URL --build-arg VITE_SUPABASE_ANON_KEY frontend

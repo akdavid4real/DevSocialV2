@@ -7,15 +7,16 @@ services:
     plan: free
     image:
       url: ghcr.io/akdavid4real/devsocial-backend:latest
-    healthCheckPath: /api/v2
+    healthCheckPath: /api/v2/actuator/health/readiness
     envVars:
       - {key: NODE_ENV, value: production}
-      - {key: PORT, value: "3000"}
-      - {key: DEV_AUTH_TEST_EMAIL, value: ""}
+      - {key: PORT, value: "3001"}
+      - {key: AUTH_COOKIE_SAME_SITE, value: lax}
       - {key: DATABASE_URL, sync: false}
       - {key: SUPABASE_URL, sync: false}
       - {key: SUPABASE_SERVICE_ROLE_KEY, sync: false}
       - {key: FRONTEND_URL, sync: false}
+      - {key: CORS_ORIGINS, sync: false}
   - type: web
     name: devsocial-web
     runtime: image

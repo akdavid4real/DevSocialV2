@@ -15,4 +15,4 @@ RUN ARCH=$(dpkg --print-architecture) \
     && cd /tmp && echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check \
     && install -m 0755 kubectl /usr/local/bin/kubectl && rm kubectl kubectl.sha256
 USER jenkins
-RUN jenkins-plugin-cli --plugins workflow-aggregator git credentials-binding timestamper
+RUN jenkins-plugin-cli --plugins workflow-aggregator git credentials-binding timestamper junit
