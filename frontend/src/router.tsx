@@ -5,6 +5,7 @@ import Providers from "@/providers";
 import AuthenticatedLayout from "@/app/(authenticated)/layout";
 import SettingsLayout from "@/app/(authenticated)/settings/layout";
 import AdminLayout from "@/app/admin/layout";
+import UnavailableFeature from "@/components/UnavailableFeature";
 
 /* Auth ------------------------------------------------------------------- */
 const LoginPage = lazy(() => import("@/app/auth/login/page"));
@@ -61,7 +62,6 @@ const CareerModulePage = lazy(() => import("@/app/(authenticated)/career-paths/[
 
 /* Gamification ----------------------------------------------------------- */
 const ChallengesPage = lazy(() => import("@/app/(authenticated)/challenges/page"));
-const MissionsPage = lazy(() => import("@/app/(authenticated)/missions/page"));
 const LeaderboardPage = lazy(() => import("@/app/(authenticated)/leaderboard/page"));
 const ReferralsPage = lazy(() => import("@/app/(authenticated)/referrals/page"));
 const ModerationPage = lazy(() => import("@/app/(authenticated)/moderation/page"));
@@ -91,7 +91,6 @@ const AdminPostsPage = lazy(() => import("@/app/admin/posts/page"));
 const AdminReportsPage = lazy(() => import("@/app/admin/reports/page"));
 const AdminUsersPage = lazy(() => import("@/app/admin/users/page"));
 const AdminRolesPage = lazy(() => import("@/app/admin/roles/page"));
-const AdminBotsPage = lazy(() => import("@/app/admin/bots/page"));
 
 function RouteFallback() {
   return (
@@ -207,7 +206,7 @@ export const router = createBrowserRouter([
           { path: "posts", element: <AdminPostsPage /> },
           { path: "reports", element: <AdminReportsPage /> },
           { path: "roles", element: <AdminRolesPage /> },
-          { path: "bots", element: <AdminBotsPage /> },
+          { path: "bots", element: <UnavailableFeature title="Bot management is unavailable" description="Bot management is not available in this version of DevSocial." /> },
           { path: "users", element: <AdminUsersPage /> },
           // Detail view intentionally renders the users shell — no dedicated
           // page exists yet. See MIGRATION_PROGRESS.md.
@@ -236,7 +235,7 @@ export const router = createBrowserRouter([
           { path: "/challenges", element: <ChallengesPage /> },
           { path: "/confess", element: <ConfessPage /> },
           { path: "/leaderboard", element: <LeaderboardPage /> },
-          { path: "/missions", element: <MissionsPage /> },
+          { path: "/missions", element: <UnavailableFeature title="Missions have been retired" description="Explore challenges to keep learning and earn rewards." /> },
           { path: "/messages", element: <MessagesPage /> },
           { path: "/moderation", element: <ModerationPage /> },
           { path: "/notifications", element: <NotificationsPage /> },

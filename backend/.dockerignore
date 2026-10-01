@@ -1,0 +1,19 @@
+# Allowlist: no local dependencies, credentials, repair scripts or database dumps.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!bun.lock
+!nest-cli.json
+!tsconfig.json
+!tsconfig.build.json
+!prisma.config.js
+!prisma/
+!prisma/schema.prisma
+!src/
+!src/**
+src/generated/
+src/scripts/
+**/*.spec.ts
+**/.env*
+**/node_modules/

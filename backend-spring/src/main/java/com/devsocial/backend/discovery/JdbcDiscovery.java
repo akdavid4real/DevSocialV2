@@ -395,7 +395,7 @@ public class JdbcDiscovery implements Discovery {
         }
         return counts.entrySet().stream()
                 .map(entry -> Map.<String, Object>of(
-                        "tag", entry.getKey(), "posts", entry.getValue(), "growth", "+100%"))
+                        "tag", entry.getKey(), "posts", entry.getValue()))
                 .sorted(Comparator.comparingInt(value -> -((Number) value.get("posts")).intValue()))
                 .limit(10)
                 .toList();

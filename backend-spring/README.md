@@ -1,7 +1,7 @@
 # DevSocial Spring Backend
 
-Incremental Spring Boot replacement for the NestJS backend. The frontend, mobile clients,
-PostgreSQL schema, and Supabase project remain unchanged.
+Incremental Spring Boot replacement for the NestJS backend. The existing web frontend
+uses Spring APIs; mobile clients, the PostgreSQL schema, and the Supabase project remain unchanged.
 
 ## Compatibility rules
 
@@ -27,10 +27,29 @@ docker build -t devsocial-backend-spring:local backend-spring
 
 Spring listens on port `3001` by default so it can run beside NestJS on port `3000`.
 
-Run the container with the same environment file currently used by NestJS:
+For local development, put the database and Supabase credentials in `backend-spring/.env`.
+Spring automatically loads that file when started from `backend-spring`:
 
 ```bash
-docker run --rm --env-file backend/.env -p 3001:3001 devsocial-backend-spring:local
+./mvnw spring-boot:run
+```
+
+The `.env` file is ignored by Git. Exported environment variables override its values.
+
+HTTP requests are logged at INFO level with method, path, response status, and duration:
+
+```text
+HTTP GET /api/v2/posts -> 200 (42 ms)
+```
+
+Request bodies, query strings, authorization headers, and cookies are not logged.
+Frontend-only navigation and Supabase realtime updates do not reach Spring and therefore
+do not produce these request logs. Restart the backend after changing its Java code.
+
+Run the container with the Spring environment file from the repository root:
+
+```bash
+docker run --rm --env-file backend-spring/.env -p 3001:3001 devsocial-backend-spring:local
 ```
 
 ## Route ownership
@@ -92,6 +111,7 @@ The following routes are implemented and verified in Spring:
 | `POST /api/v2/posts/comments/{commentId}/like` | Bearer | Atomic like counter and recipient XP changes |
 | `POST /api/v2/posts/{postId}/poll/vote` | Bearer | Serializable poll validation, vote update, and XP award |
 | `GET /api/v2/search` | Optional bearer | Posts, users, and tags with the existing nested response and privacy-aware filtering |
+| `GET /api/v2/career-paths`, `GET /api/v2/career-paths/{id}` | Public | Backend-owned learning catalog and lessons; no fabricated completion/progress metrics |
 | `GET /api/v2/trending` | Optional bearer | Time-window post ranking, hashtag topics, rising users, and dashboard statistics |
 | `GET /api/v2/notifications`, `GET /api/v2/notifications/{id}` | Bearer | Existing nested list envelope, unread filtering/count, and sender projection |
 | `PUT /api/v2/notifications/mark-read`, `PUT /api/v2/notifications/mark-unread` | Bearer | Recipient-scoped bulk updates capped at 100 notification IDs |

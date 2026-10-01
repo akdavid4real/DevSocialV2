@@ -1,18 +1,20 @@
 "use client"
 
 import { ArrowRight, BookOpen, Clock, Route, Sparkles } from "lucide-react"
-import { getCareerPaths, formatDifficulty } from "@/lib/career-paths"
+import { useCareerPaths, formatDifficulty } from "@/lib/career-paths"
 import { useRouter } from "@/lib/navigation"
 import Link from "@/components/ui/link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
 
 export default function CareerPathsPage() {
     const router = useRouter()
-    const paths = getCareerPaths()
+    const { data: paths = [], isPending, isError, refetch } = useCareerPaths()
     const moduleCount = paths.reduce((sum, path) => sum + path.modules.length, 0)
+
+    if (isPending) return <p role="status">Loading career paths...</p>
+    if (isError) return <div role="alert">Unable to load career paths. <Button onClick={() => refetch()}>Retry</Button></div>
 
     return (
         <div className="mx-auto max-w-6xl space-y-6">
@@ -23,18 +25,17 @@ export default function CareerPathsPage() {
                         Structured learning routes for developers who want a clearer path from skills to product work.
                     </p>
                 </div>
-                <Button asChild className="w-full sm:w-auto">
-                    <Link href="/career-paths/frontend-developer">
+                {paths[0] && <Button asChild className="w-full sm:w-auto">
+                    <Link href={`/career-paths/${paths[0].id}`}>
                         <Sparkles className="h-4 w-4" />
-                        Start Frontend
+                        Start {paths[0].title}
                     </Link>
-                </Button>
+                </Button>}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
                 <Card><CardContent className="p-4"><div className="text-2xl font-bold">{paths.length}</div><div className="text-sm text-muted-foreground">Paths</div></CardContent></Card>
                 <Card><CardContent className="p-4"><div className="text-2xl font-bold">{moduleCount}</div><div className="text-sm text-muted-foreground">Modules</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-2xl font-bold">0%</div><div className="text-sm text-muted-foreground">Saved progress</div></CardContent></Card>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -68,7 +69,6 @@ export default function CareerPathsPage() {
                                     <span className="flex items-center gap-1"><BookOpen className="h-3.5 w-3.5" />{path.modules.length} modules</span>
                                     <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{path.duration}</span>
                                 </div>
-                                <Progress value={0} />
                             </div>
                             <div className="flex items-center justify-between text-sm font-medium text-primary">
                                 <span>View path</span>

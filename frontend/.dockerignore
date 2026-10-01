@@ -1,0 +1,19 @@
+# Only files needed for the web build are sent to Docker.
+**
+!Dockerfile
+!.dockerignore
+!nginx.conf.template
+!docker-entrypoint.d/
+!docker-entrypoint.d/**
+!package.json
+!bun.lock
+!index.html
+!tsconfig.json
+!vite.config.ts
+!postcss.config.mjs
+!src/
+!src/**
+!public/
+!public/**
+**/.env*
+**/node_modules/

@@ -74,7 +74,7 @@ export class PostVisibilityService {
     const lockKey = `post-view:${postId}:${identity}`;
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
 
       const existing = await tx.view.findFirst({
         where: userId

@@ -70,8 +70,14 @@ interface ApiResponse<T> {
 }
 
 export async function getDashboard(period = "week") {
-    const response = await api.get<any, ApiResponse<DashboardData>>("/users/dashboard", {
+    const response = await api.get<unknown, ApiResponse<DashboardData | ApiResponse<DashboardData>>>("/users/dashboard", {
         params: { period },
     })
-    return response.data
+    // UsersService supplies its own data envelope inside the global response envelope.
+    const payload = response.data
+    const dashboard = payload && "data" in payload ? payload.data : payload
+    if (!dashboard?.stats || !dashboard.charts || !Array.isArray(dashboard.charts.dailyActivity)) {
+        throw new Error("Invalid dashboard response")
+    }
+    return dashboard
 }

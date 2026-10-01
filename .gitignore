@@ -1,7 +1,9 @@
 # Credentials and local configuration
 .env
 .env.*
+.aws
 !.env.example
+!.env.docker.example
 
 # Dependencies and generated build output
 node_modules/
@@ -9,6 +11,7 @@ node_modules/
 dist/
 build/
 coverage/
+*.tsbuildinfo
 .expo/
 web-build/
 

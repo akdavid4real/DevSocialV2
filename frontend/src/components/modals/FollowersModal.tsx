@@ -78,7 +78,7 @@ export default function FollowersModal({ isOpen, onClose, userId, username, type
                 ...user,
                 isFollowing: followingIds.has(user.id),
                 isMutual: type === 'followers' ? followingIds.has(user.id) : false,
-                isOnline: Math.random() > 0.5 // TODO: Replace with actual online status from backend
+                isOnline: user.isOnline === true
             }))
             
             if (pageNum === 1) {

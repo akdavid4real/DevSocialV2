@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -94,7 +95,7 @@ export class AuthService {
 
     if (dto.referralCode) {
       try {
-        await this.referralsService.processReferral(user.id, dto.referralCode);
+        await this.referralsService.createCompletedReferral(dto.referralCode, user.id);
       } catch (error: any) {
         this.logger.warn(`Referral processing failed after registration: ${error?.message || error}`);
       }
@@ -217,19 +218,22 @@ export class AuthService {
   }
 
   async devVerifyUser(email: string) {
-    const normalizedEmail = email.trim().toLowerCase();
-    const { data: { users } } = await this.supabase.client.auth.admin.listUsers();
-    const authUser = users?.find((u: any) => u.email?.toLowerCase() === normalizedEmail);
+    const allowedEmail = this.configService.get<string>('DEV_AUTH_TEST_EMAIL')?.trim().toLowerCase();
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    if (this.configService.get<string>('NODE_ENV') !== 'development' || !allowedEmail || normalizedEmail !== allowedEmail) {
+      throw new ForbiddenException('Development verification is disabled for this account');
+    }
 
-    if (!authUser) throw new BadRequestException('User not found in Supabase');
+    const user = await this.prisma.user.findUnique({ where: { email: normalizedEmail } });
+    if (!user?.supabaseAuthId) throw new BadRequestException('Registered account not found');
 
-    const { error } = await this.supabase.client.auth.admin.updateUserById(authUser.id, {
+    const { error } = await this.supabase.client.auth.admin.updateUserById(user.supabaseAuthId, {
       email_confirm: true,
     });
     if (error) throw new InternalServerErrorException(error.message);
 
     await this.prisma.user.update({
-      where: { supabaseAuthId: authUser.id },
+      where: { id: user.id },
       data: { isVerified: true },
     });
 

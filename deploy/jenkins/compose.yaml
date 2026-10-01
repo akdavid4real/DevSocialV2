@@ -1,0 +1,17 @@
+name: devsocial-jenkins
+services:
+  jenkins:
+    build: .
+    image: devsocial-jenkins:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      JAVA_OPTS: "-Xms128m -Xmx512m"
+    group_add:
+      - "${DOCKER_GID:?Set DOCKER_GID to the group owning /var/run/docker.sock}"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+volumes:
+  jenkins-home:

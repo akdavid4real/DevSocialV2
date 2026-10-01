@@ -194,32 +194,6 @@ function VerifyContent() {
             </CardContent>
 
             <CardFooter className="flex flex-col gap-4 border-t border-white/5 pt-6">
-                {import.meta.env.DEV && (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full border-dashed border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10"
-                        onClick={async () => {
-                            try {
-                                setLoading(true);
-                                await fetch(`${API_BASE_URL}/auth/dev/verify`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ email }),
-                                });
-                                setVerified(true);
-                                toast.success("Magic Verified! Redirecting...");
-                                setTimeout(() => router.push("/auth/login"), 2000);
-                            } catch (err) {
-                                toast.error("Bypass failed");
-                            } finally {
-                                setLoading(false);
-                            }
-                        }}
-                    >
-                        🪄 Magic Verify (Dev Only)
-                    </Button>
-                )}
                 <div className="text-sm text-center text-muted-foreground w-full">
                     Didn't receive the code?{" "}
                     <button

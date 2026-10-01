@@ -47,7 +47,7 @@ interface ApiResponse<T> {
 }
 
 export async function getModerationReports(params?: { status?: string; page?: number; limit?: number }) {
-    const response = await api.get<any, ApiResponse<ModerationReport[]>>("/admin/reports", {
+    const response = await api.get<any, { data: ApiResponse<ModerationReport[]> }>("/admin/reports", {
         params: {
             status: params?.status || undefined,
             page: params?.page || 1,
@@ -55,7 +55,7 @@ export async function getModerationReports(params?: { status?: string; page?: nu
         },
     })
 
-    return response
+    return response.data
 }
 
 export async function resolveModerationReport(reportId: string, input: {
@@ -63,8 +63,8 @@ export async function resolveModerationReport(reportId: string, input: {
     action: ReportAction
     reviewNote?: string
 }) {
-    const response = await api.put<any, ModerationReport>(`/admin/reports/${reportId}/resolve`, input)
-    return response
+    const response = await api.put<any, { data: ModerationReport }>(`/admin/reports/${reportId}/resolve`, input)
+    return response.data
 }
 
 export function formatReportLabel(value: string) {

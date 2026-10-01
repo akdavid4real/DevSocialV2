@@ -45,20 +45,9 @@ export default function PostDetailPage() {
         const fetchPost = async () => {
             try {
                 const response = await api.get<any>(`/posts/${id}`)
-                console.log('[POST] Response:', response)
                 const postData = response.data || response
                 setPost(postData)
                 
-                // Refetch after 500ms to get updated viewsCount
-                setTimeout(async () => {
-                    try {
-                        const updatedResponse = await api.get<any>(`/posts/${id}`)
-                        const updatedPost = updatedResponse.data || updatedResponse
-                        setPost(updatedPost)
-                    } catch (err) {
-                        console.error('Failed to refetch post:', err)
-                    }
-                }, 500)
             } catch (error) {
                 console.error("Failed to fetch post:", error)
                 toast.error("Post not found")
@@ -73,9 +62,11 @@ export default function PostDetailPage() {
         }
     }, [id, router])
 
+    const loadedPostId = post?.id
+
     useEffect(() => {
         const fetchComments = async () => {
-            if (!post) return
+            if (!loadedPostId) return
             
             setLoadingComments(true)
             try {
@@ -90,10 +81,10 @@ export default function PostDetailPage() {
             }
         }
 
-        if (post) {
+        if (loadedPostId) {
             fetchComments()
         }
-    }, [post, id])
+    }, [loadedPostId, id])
 
     const fetchReplies = async (commentId: string) => {
         if (loadingReplies[commentId]) return

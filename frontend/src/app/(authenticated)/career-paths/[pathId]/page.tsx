@@ -1,19 +1,21 @@
 "use client"
 
 import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, Clock, Target } from "lucide-react"
-import { formatDifficulty, getCareerPath } from "@/lib/career-paths"
+import { formatDifficulty, useCareerPath } from "@/lib/career-paths"
 import { useParams, useRouter } from "@/lib/navigation"
 import Link from "@/components/ui/link"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
 
 export default function CareerPathDetailPage() {
     const router = useRouter()
     const params = useParams()
     const pathId = typeof params.pathId === "string" ? params.pathId : ""
-    const path = getCareerPath(pathId)
+    const { data: path, isPending, isError, error, refetch } = useCareerPath(pathId)
+
+    if (isPending) return <p role="status">Loading career path...</p>
+    if (isError && (error as { statusCode?: number })?.statusCode !== 404) return <div role="alert">Unable to load career path. <Button onClick={() => refetch()}>Retry</Button></div>
 
     if (!path) {
         return (
@@ -101,15 +103,10 @@ export default function CareerPathDetailPage() {
                 <aside className="space-y-4">
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-lg">Progress</CardTitle>
+                            <CardTitle className="text-lg">Path overview</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                            <Progress value={0} />
-                            <div className="grid grid-cols-2 gap-3 text-sm">
-                                <div>
-                                    <div className="text-2xl font-bold text-foreground">0</div>
-                                    <div className="text-muted-foreground">Completed</div>
-                                </div>
+                            <div className="text-sm">
                                 <div>
                                     <div className="text-2xl font-bold text-foreground">{path.modules.length}</div>
                                     <div className="text-muted-foreground">Total modules</div>
@@ -125,7 +122,7 @@ export default function CareerPathDetailPage() {
                         <CardContent className="space-y-3 text-sm text-muted-foreground">
                             <div className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> You can commit a few focused hours each week.</div>
                             <div className="flex gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> You are ready to build small artifacts while learning.</div>
-                            <div className="flex gap-2"><Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> Start with the first unfinished module.</div>
+                            <div className="flex gap-2"><Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> Start with the first module.</div>
                         </CardContent>
                     </Card>
                 </aside>

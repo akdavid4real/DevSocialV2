@@ -5,6 +5,8 @@ server:
   shutdown: graceful
 
 spring:
+  config:
+    import: optional:file:./.env[.properties]
   application:
     name: devsocial-backend-spring
   autoconfigure:

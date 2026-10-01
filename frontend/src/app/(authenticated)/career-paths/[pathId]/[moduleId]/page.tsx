@@ -1,7 +1,7 @@
 "use client"
 
 import { ArrowLeft, ArrowRight, CheckCircle2, ExternalLink } from "lucide-react"
-import { formatDifficulty, getAdjacentModules, getCareerModule, getCareerPath } from "@/lib/career-paths"
+import { formatDifficulty, getAdjacentModules, useCareerPath } from "@/lib/career-paths"
 import { useParams } from "@/lib/navigation"
 import Link from "@/components/ui/link"
 import { Badge } from "@/components/ui/badge"
@@ -12,9 +12,12 @@ export default function CareerModulePage() {
     const params = useParams()
     const pathId = typeof params.pathId === "string" ? params.pathId : ""
     const moduleId = typeof params.moduleId === "string" ? params.moduleId : ""
-    const path = getCareerPath(pathId)
-    const module = getCareerModule(pathId, moduleId)
-    const adjacent = getAdjacentModules(pathId, moduleId)
+    const { data: path, isPending, isError, error, refetch } = useCareerPath(pathId)
+    const module = path?.modules.find((item) => item.id === moduleId)
+    const adjacent = getAdjacentModules(path, moduleId)
+
+    if (isPending) return <p role="status">Loading lesson...</p>
+    if (isError && (error as { statusCode?: number })?.statusCode !== 404) return <div role="alert">Unable to load lesson. <Button onClick={() => refetch()}>Retry</Button></div>
 
     if (!path || !module) {
         return (
@@ -110,7 +113,7 @@ export default function CareerModulePage() {
                             </Button>
                         ) : (
                             <Button asChild>
-                                <Link href={`/career-paths/${path.id}`}>Finish module</Link>
+                                <Link href={`/career-paths/${path.id}`}>Back to path</Link>
                             </Button>
                         )}
                     </div>

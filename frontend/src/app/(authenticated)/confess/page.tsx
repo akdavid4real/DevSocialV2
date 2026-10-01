@@ -1,6 +1,9 @@
 "use client"
 
 import { FormEvent, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import api from "@/lib/api"
+import { toast } from "sonner"
 import { EyeOff, Send, Hash, ImageIcon, AlertTriangle, Shield } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,42 +13,55 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-const suggestedTags = [
-  "#confession",
-  "#anonymous",
-  "#career",
-  "#coding",
-  "#learning",
-  "#mistakes",
-  "#advice",
-  "#experience",
-  "#struggles",
-  "#success",
-  "#failure",
-  "#imposter",
-]
-
 export default function ConfessPage() {
   const [content, setContent] = useState("")
   const [tags, setTags] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
   const [imageUrl, setImageUrl] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const { data: suggestedTags = [] } = useQuery({
+    queryKey: ["confession-tags"],
+    queryFn: async () => {
+      const response = await api.get<unknown, { data: { trendingTopics: { tag: string }[] } }>("/trending")
+      return response.data.trendingTopics.map((topic) => `#${topic.tag}`)
+    },
+  })
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!content.trim()) return
 
     setIsSubmitting(true)
 
-    setTimeout(() => {
-      setIsSubmitting(false)
+    try {
+      await api.post('/posts', { content: [content.trim(), tags.join(' ')].filter(Boolean).join('\n\n'), imageUrls: imageUrl ? [imageUrl] : [], isAnonymous: true })
       setContent("")
       setTags([])
       setNewTag("")
       setImageUrl("")
-      alert("Your anonymous confession has been posted!")
-    }, 1000)
+      toast.success("Confession posted")
+    } catch {
+      toast.error("Unable to post confession. Your draft has been kept.")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const uploadImage = async (file: File | undefined) => {
+    if (!file) return
+    setIsUploading(true)
+    try {
+      const form = new FormData()
+      form.append('files', file)
+      const response = await api.post<unknown, { data: { urls: string[] } }>('/storage/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      if (!response.data.urls[0]) throw new Error('No uploaded image URL')
+      setImageUrl(response.data.urls[0])
+    } catch {
+      toast.error('Image upload failed')
+    } finally {
+      setIsUploading(false)
+    }
   }
 
   const addTag = (tag: string) => {
@@ -80,7 +96,7 @@ export default function ConfessPage() {
       <Alert className="mb-6 border-purple-200 bg-purple-50">
         <Shield className="w-4 h-4 text-purple-600" />
         <AlertDescription className="text-purple-800">
-          Your privacy is protected. This post is intended to be posted anonymously.
+          This post uses anonymous display. Do not include personal or sensitive information.
         </AlertDescription>
       </Alert>
 
@@ -115,15 +131,15 @@ export default function ConfessPage() {
               <div className="flex space-x-2">
                 <Input
                   id="image"
-                  type="url"
-                  placeholder="Paste image URL (optional)"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  disabled={isUploading || isSubmitting}
+                  onChange={(e) => uploadImage(e.target.files?.[0])}
                   className="flex-1"
                 />
-                <Button type="button" variant="outline" size="sm">
+                <Button type="button" variant="outline" size="sm" disabled>
                   <ImageIcon className="w-4 h-4 mr-2" />
-                  Upload
+                  {isUploading ? 'Uploading...' : imageUrl ? 'Uploaded' : 'Choose image'}
                 </Button>
               </div>
             </div>
@@ -200,7 +216,7 @@ export default function ConfessPage() {
               <Button
                 type="submit"
                 className="bg-purple-600 hover:bg-purple-700 text-white px-8"
-                disabled={!content.trim() || isSubmitting}
+                disabled={!content.trim() || isSubmitting || isUploading}
               >
                 <Send className="w-4 h-4 mr-2" />
                 {isSubmitting ? "Posting..." : "Post Anonymously"}

@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: backend}
+  template:
+    metadata:
+      labels: {app: backend}
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: backend
+          image: devsocial-backend:local
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 3000, name: http}]
+          envFrom:
+            - secretRef: {name: backend-env}
+          env:
+            - {name: NODE_ENV, value: production}
+            - {name: PORT, value: "3000"}
+            - {name: DEV_AUTH_TEST_EMAIL, value: ""}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          startupProbe:
+            httpGet: {path: /api/v2, port: http}
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: {path: /api/v2, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /api/v2, port: http}
+            periodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector: {app: backend}
+  ports: [{port: 3000, targetPort: http}]

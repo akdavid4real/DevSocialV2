@@ -1,6 +1,6 @@
 import { IsString, IsOptional, IsEnum, IsBoolean, IsInt, Min, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
-import { UserRole, ReportStatus, ReportAction, PostStatus, AiService } from '@prisma/client';
+import { UserRole, ReportStatus, ReportAction, PostStatus, AiService } from '../../generated/prisma';
 
 // User Management DTOs
 export class UpdateUserRoleDto {

@@ -5,6 +5,7 @@
  * `useSearchParams` from here. Keeping that surface stable means the router
  * swap stays contained to this file, `router.tsx` and `components/ui/link`.
  */
+import { useMemo } from "react";
 import {
   useLocation,
   useNavigate,
@@ -45,7 +46,7 @@ export function useParams(): Record<string, string | undefined> {
 export function useRouter() {
   const navigate = useNavigate();
 
-  return {
+  return useMemo(() => ({
     push: (href: string) => navigate(href),
     replace: (href: string) => navigate(href, { replace: true }),
     back: () => navigate(-1),
@@ -54,5 +55,5 @@ export function useRouter() {
      * router loaders, so data refreshes go through TanStack Query instead.
      */
     refresh: () => {},
-  };
+  }), [navigate]);
 }

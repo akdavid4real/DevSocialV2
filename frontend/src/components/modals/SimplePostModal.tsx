@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useState, useRef } from "react"
-import { X, ImageIcon, Video, Hash, Smile, Code, BarChart3, Globe, Users, Users2, Lock, Loader2, Link2, ExternalLink, Plus, Sparkles } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogOverlay } from "@/components/ui/dialog"
+import { X, ImageIcon, Video, Hash, BarChart3, Globe, Users, Users2, Lock, Loader2, Link2, ExternalLink, Plus, Sparkles } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Textarea } from "@/components/ui/textarea"
@@ -19,6 +19,10 @@ interface SimplePostModalProps {
     isOpen: boolean
     onClose: () => void
     onSubmitSuccess?: (post: any) => void
+}
+
+function getInitials(name: string) {
+    return name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "D"
 }
 
 export function SimplePostModal({ isOpen, onClose, onSubmitSuccess }: SimplePostModalProps) {
@@ -39,6 +43,20 @@ export function SimplePostModal({ isOpen, onClose, onSubmitSuccess }: SimplePost
     const [pollOptions, setPollOptions] = useState(["", ""])
     const [allowMultipleChoices, setAllowMultipleChoices] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const textareaRef = useRef<HTMLTextAreaElement>(null)
+    const authorName = user?.displayName?.trim() || [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.username || "Developer"
+
+    const appendMarker = (marker: string) => {
+        setContent(prev => prev + (prev.endsWith(" ") || prev === "" ? marker : ` ${marker}`))
+        textareaRef.current?.focus()
+    }
+
+    const selectMedia = (accept: string) => {
+        if (fileInputRef.current) {
+            fileInputRef.current.accept = accept
+            fileInputRef.current.click()
+        }
+    }
 
     useEffect(() => {
         const url = extractFirstUrl(content)
@@ -244,31 +262,34 @@ export function SimplePostModal({ isOpen, onClose, onSubmitSuccess }: SimplePost
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogOverlay className="bg-black/40 backdrop-blur-sm" />
-            <DialogContent className="sm:max-w-[500px] border-white/10 bg-[#0A0A0B]/95 backdrop-blur-2xl p-0 shadow-2xl rounded-[32px]">
-                <DialogHeader className="px-5 py-4 border-b border-white/5 flex flex-row items-center justify-between space-y-0">
+            <DialogContent className="flex w-[calc(100%-2rem)] max-h-[90svh] flex-col gap-0 overflow-hidden rounded-2xl border-border bg-card p-0 shadow-2xl sm:max-w-[540px]">
+                <DialogHeader className="shrink-0 px-5 py-4 border-b border-border flex flex-row items-center justify-between space-y-0">
                     <DialogTitle className="text-sm font-bold uppercase tracking-widest text-foreground/70">New Thread</DialogTitle>
+                    <DialogDescription className="sr-only">Share a post with the community. Add media, a poll, or choose to post anonymously.</DialogDescription>
                 </DialogHeader>
 
-                <div className="p-5 space-y-4">
+                <div className="min-h-0 overflow-y-auto p-5 space-y-4">
                     <div className="flex gap-3">
                         <Avatar className="h-10 w-10 border border-white/10 shadow-lg">
-                            <AvatarImage src={user?.avatar} />
-                            <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold uppercase">{user?.username?.[0]}</AvatarFallback>
+                            <AvatarImage src={user?.avatar} alt={authorName} />
+                            <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold uppercase">{getInitials(authorName)}</AvatarFallback>
                         </Avatar>
-                        <div className="flex-1 space-y-2 relative">
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm font-bold tracking-tight text-foreground">{user?.displayName || user?.username}</span>
+                        <div className="min-w-0 flex-1 space-y-3 relative">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-bold tracking-tight text-foreground">{authorName}</span>
                                 <Badge variant="outline" className="h-4 px-1.5 bg-white/5 border-white/10 text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">
                                     <Globe className="h-2 w-2 mr-1" />
                                     Global
                                 </Badge>
                             </div>
                             <Textarea
+                                ref={textareaRef}
+                                aria-label="Post content"
+                                maxLength={2000}
                                 placeholder="What's on your mind?..."
                                 value={content}
                                 onChange={handleContentChange}
-                                className="min-h-[120px] border-none bg-transparent p-0 text-base focus-visible:ring-0 placeholder:text-muted-foreground/60 resize-none text-foreground leading-relaxed font-medium"
+                                className="min-h-[88px] sm:min-h-[104px] border-none bg-transparent p-0 text-base focus-visible:ring-0 placeholder:text-muted-foreground/60 resize-none text-foreground leading-relaxed font-medium"
                                 autoFocus
                             />
 
@@ -285,7 +306,7 @@ export function SimplePostModal({ isOpen, onClose, onSubmitSuccess }: SimplePost
                                                 <Avatar className="h-8 w-8 border border-white/10 group-hover:border-primary/30 transition-colors shadow-sm">
                                                     <AvatarImage src={suggestionUser.avatar} />
                                                     <AvatarFallback className="bg-primary/5 text-primary text-xs font-bold uppercase">
-                                                        {suggestionUser.username[0]}
+                                                        {getInitials(suggestionUser.displayName || suggestionUser.username)}
                                                     </AvatarFallback>
                                                 </Avatar>
                                                 <div className="flex flex-col min-w-0">
@@ -463,26 +484,22 @@ export function SimplePostModal({ isOpen, onClose, onSubmitSuccess }: SimplePost
                         </div>
                     )}
 
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                            <Sparkles className="h-3.5 w-3.5" />
-                            AI Assist
-                        </span>
-                        {(["professional", "casual", "hashtags"] as EnhanceAction[]).map((action) => (
-                            <Button
-                                key={action}
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                disabled={!content.trim() || !!enhancingAction}
-                                onClick={() => handleEnhanceText(action)}
-                                className="h-7 rounded-xl px-2 text-[11px] capitalize"
-                            >
-                                {enhancingAction === action ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                                {action}
-                            </Button>
-                        ))}
-                    </div>
+                    <details className="rounded-xl border border-border bg-muted/20 px-3 py-2">
+                        <summary className="cursor-pointer text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" />AI Assist · optional</span>
+                        </summary>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {(["professional", "casual", "hashtags"] as EnhanceAction[]).map((action) => (
+                                <Button key={action} type="button" size="sm" variant="ghost"
+                                    disabled={!content.trim() || !!enhancingAction}
+                                    onClick={() => handleEnhanceText(action)}
+                                    className="h-8 rounded-lg px-2 text-xs text-muted-foreground">
+                                    {enhancingAction === action ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                                    {action === "hashtags" ? "Add hashtags" : action === "professional" ? "Professional tone" : "Casual tone"}
+                                </Button>
+                            ))}
+                        </div>
+                    </details>
 
                     {/* Tags and Mentions */}
                     {(tags.length > 0 || mentions.length > 0) && (
@@ -509,94 +526,52 @@ export function SimplePostModal({ isOpen, onClose, onSubmitSuccess }: SimplePost
 
                 </div>
 
-                <div className="p-4 bg-white/[0.02] border-t border-white/5 flex items-center justify-between backdrop-blur-xl">
-                    <div className="flex items-center gap-0.5">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={uploading}
-                            onClick={() => fileInputRef.current?.click()}
-                            className="h-9 w-9 rounded-xl text-blue-400 hover:bg-blue-500/10 hover:text-blue-400 transition-all"
-                        >
-                            <ImageIcon className="h-5 w-5" />
+                <div className="shrink-0 space-y-3 border-t border-border bg-muted/20 px-5 py-4">
+                    <input ref={fileInputRef} type="file" accept="image/*,video/*" onChange={handleFileSelect} className="hidden" aria-label="Upload media" />
+                    <div className="flex flex-wrap items-center gap-1" aria-label="Post tools">
+                        <Button type="button" variant="ghost" size="sm" disabled={uploading}
+                            onClick={() => selectMedia("image/*")} className="h-9 gap-1.5 px-2 text-xs text-muted-foreground">
+                            <ImageIcon className="h-4 w-4" />Photo
                         </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={uploading}
-                            onClick={() => fileInputRef.current?.click()}
-                            className="h-9 w-9 rounded-xl text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-400 transition-all"
-                        >
-                            <Video className="h-5 w-5" />
+                        <Button type="button" variant="ghost" size="sm" disabled={uploading}
+                            onClick={() => selectMedia("video/*")} className="h-9 gap-1.5 px-2 text-xs text-muted-foreground">
+                            <Video className="h-4 w-4" />Video
                         </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setShowPoll((value) => !value)}
-                            className={cn(
-                                "h-9 w-9 rounded-xl text-indigo-400 hover:bg-indigo-500/10 hover:text-indigo-400 transition-all",
-                                showPoll && "bg-indigo-500/10"
-                            )}
-                        >
-                            <BarChart3 className="h-5 w-5" />
+                        <Button type="button" variant="ghost" size="sm" aria-pressed={showPoll}
+                            onClick={() => setShowPoll(value => !value)}
+                            className={cn("h-9 gap-1.5 px-2 text-xs text-muted-foreground", showPoll && "bg-primary/10 text-primary")}>
+                            <BarChart3 className="h-4 w-4" />Poll
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-orange-400 hover:bg-orange-500/10 hover:text-orange-400 transition-all">
-                            <Code className="h-5 w-5" />
+                        <Button type="button" variant="ghost" size="sm" onClick={() => appendMarker("#")}
+                            className="h-9 gap-1.5 px-2 text-xs text-muted-foreground">
+                            <Hash className="h-4 w-4" />Hashtag
                         </Button>
-                        <div className="h-4 w-[1px] bg-white/10 mx-1" />
-                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all">
-                            <Smile className="h-5 w-5" />
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all"
-                            onClick={() => {
-                                setContent(prev => prev + (prev.endsWith(" ") || prev === "" ? "#" : " #"));
-                            }}
-                        >
-                            <Hash className="h-5 w-5" />
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all"
-                            onClick={() => {
-                                setContent(prev => prev + (prev.endsWith(" ") || prev === "" ? "@" : " @"));
-                            }}
-                        >
-                            <span className="text-lg font-medium">@</span>
-                        </Button>
-                        <div className="h-4 w-[1px] bg-white/10 mx-1" />
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setIsAnonymous(!isAnonymous)}
-                            className={cn(
-                                "h-8 px-2 rounded-xl text-xs font-semibold uppercase tracking-widest transition-all",
-                                isAnonymous ? "bg-orange-500/10 text-orange-400" : "text-muted-foreground hover:bg-white/5"
-                            )}
-                        >
-                            {isAnonymous ? <Lock className="h-3 w-3 mr-1.5" /> : <Users className="h-3 w-3 mr-1.5" />}
-                            {isAnonymous ? "Secret" : "On"}
+                        <Button type="button" variant="ghost" size="sm" onClick={() => appendMarker("@")}
+                            className="h-9 gap-1.5 px-2 text-xs text-muted-foreground">
+                            <span className="text-base">@</span>Mention
                         </Button>
                     </div>
-
-                    <div className="flex items-center gap-4">
-                        <span className={cn(
-                            "text-xs font-semibold tracking-widest uppercase transition-colors",
-                            content.length > 1800 ? "text-orange-400" : "text-muted-foreground/60"
-                        )}>
-                            {content.length}/2000
-                        </span>
-                        <Button
-                            onClick={handleSubmit}
-                            disabled={(!content.trim() && mediaItems.length === 0 && !showPoll) || loading || (showPoll && (!pollQuestion.trim() || pollOptions.filter((option) => option.trim()).length < 2))}
-                            className="rounded-full px-6 h-10 text-xs font-semibold uppercase tracking-widest shadow-2xl shadow-primary/40 bg-gradient-to-r from-primary via-purple-600 to-primary border-0 hover:scale-105 active:scale-95 transition-all animate-gradient-x"
-                        >
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                            Post
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <Button type="button" variant="ghost" size="sm" role="switch" aria-checked={isAnonymous}
+                            onClick={() => setIsAnonymous(value => !value)}
+                            className={cn("h-9 gap-2 px-2 text-xs", isAnonymous ? "bg-primary/10 text-primary" : "text-muted-foreground")}>
+                            {isAnonymous ? <Lock className="h-4 w-4" /> : <Users className="h-4 w-4" />}
+                            Post anonymously
+                            <span aria-hidden="true" className={cn("relative h-4 w-7 rounded-full transition-colors", isAnonymous ? "bg-primary" : "bg-muted-foreground/30")}>
+                                <span className={cn("absolute left-0 top-0.5 h-3 w-3 rounded-full bg-white transition-transform", isAnonymous ? "translate-x-3.5" : "translate-x-0.5")} />
+                            </span>
                         </Button>
+                        <div className="ml-auto flex items-center gap-3">
+                            <span className={cn("text-xs tabular-nums", content.length > 1800 ? "text-orange-500" : "text-muted-foreground")}>
+                                {content.length}/2000
+                            </span>
+                            <Button onClick={handleSubmit}
+                                disabled={(!content.trim() && mediaItems.length === 0 && !showPoll) || loading || uploading || !!enhancingAction || (showPoll && (!pollQuestion.trim() || pollOptions.filter(option => option.trim()).length < 2))}
+                                className="h-10 rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+                                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                Post
+                            </Button>
+                        </div>
                     </div>
                 </div>
             </DialogContent>

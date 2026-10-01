@@ -29,7 +29,7 @@ interface TrendingPost {
 interface TrendingTopic {
     tag: string
     posts: number
-    growth: string
+    growth?: string
 }
 
 interface TrendingUser {
@@ -44,7 +44,6 @@ interface TrendingUser {
 
 interface TrendingStats {
     hotPosts: number
-    growth: string
     totalViews: string
     engagements: string
 }
@@ -58,7 +57,6 @@ export default function TrendingPage() {
     const [trendingUsers, setTrendingUsers] = useState<TrendingUser[]>([])
     const [stats, setStats] = useState<TrendingStats>({
         hotPosts: 0,
-        growth: '+0%',
         totalViews: '0',
         engagements: '0'
     })
@@ -127,10 +125,9 @@ export default function TrendingPage() {
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                 {[
                     { icon: Flame, label: 'Hot Posts', value: stats.hotPosts, color: 'from-orange-500 to-red-500' },
-                    { icon: TrendingUp, label: 'Growth', value: stats.growth, color: 'from-green-500 to-emerald-500' },
                     { icon: Eye, label: 'Total Views', value: stats.totalViews, color: 'from-blue-500 to-cyan-500' },
                     { icon: Heart, label: 'Engagements', value: stats.engagements, color: 'from-pink-500 to-rose-500' },
                 ].map((stat) => (
@@ -238,9 +235,9 @@ export default function TrendingPage() {
                                                 <span className="text-2xl font-bold text-primary/30">#{index + 1}</span>
                                                 <span className="text-lg font-bold text-foreground group-hover:text-primary transition-colors">#{topic.tag}</span>
                                             </div>
-                                            <span className="px-2 py-1 rounded-full bg-green-500/20 text-green-400 text-xs font-semibold uppercase">
+                                            {topic.growth && <span className="px-2 py-1 rounded-full bg-green-500/20 text-green-400 text-xs font-semibold uppercase">
                                                 {topic.growth}
-                                            </span>
+                                            </span>}
                                         </div>
                                         <div className="flex items-end justify-between">
                                             <div>

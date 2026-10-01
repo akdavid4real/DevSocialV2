@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import api from "@/lib/api"
+import { useAuth } from "@/contexts/auth-context"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -47,17 +48,18 @@ interface User {
 }
 
 export default function UsersManagement() {
+  const { user: currentUser } = useAuth()
+  const canManageCredentials = currentUser?.role === 'ADMIN'
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
-  const [actionType, setActionType] = useState<'ban' | 'unban' | 'role' | 'reset-password' | 'delete' | null>(null)
+  const [actionType, setActionType] = useState<'ban' | 'unban' | 'role' | 'reset-password' | null>(null)
   const [newRole, setNewRole] = useState("")
   const [banReason, setBanReason] = useState("")
   const [newPassword, setNewPassword] = useState("")
-  const [deleteConfirmation, setDeleteConfirmation] = useState("")
 
   useEffect(() => {
     loadUsers()
@@ -131,20 +133,6 @@ export default function UsersManagement() {
       setNewPassword("")
     } catch (error: any) {
       toast.error(error?.error || 'Failed to reset password')
-    }
-  }
-
-  const handleDeleteUser = async () => {
-    if (!selectedUser || deleteConfirmation !== selectedUser.username) return
-    try {
-      await api.delete(`/admin/users/${selectedUser.id}`)
-      toast.success(`${selectedUser.username} has been deleted`)
-      setActionType(null)
-      setSelectedUser(null)
-      setDeleteConfirmation("")
-      loadUsers()
-    } catch (error: any) {
-      toast.error(error?.error || 'Failed to delete user')
     }
   }
 
@@ -307,6 +295,8 @@ export default function UsersManagement() {
                   <Button
                     size="sm"
                     variant="outline"
+                    disabled={!canManageCredentials}
+                    title={!canManageCredentials ? "Only administrators can change roles" : undefined}
                     onClick={() => { setSelectedUser(user); setNewRole(user.role); setActionType('role') }}
                   >
                     <Shield className="h-4 w-4 mr-1" />
@@ -315,6 +305,8 @@ export default function UsersManagement() {
                   <Button
                     size="sm"
                     variant="outline"
+                    disabled={!canManageCredentials}
+                    title={!canManageCredentials ? "Only administrators can reset passwords" : undefined}
                     onClick={() => { setSelectedUser(user); setNewPassword(""); setActionType('reset-password') }}
                   >
                     <KeyRound className="h-4 w-4 mr-1" />
@@ -323,12 +315,12 @@ export default function UsersManagement() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => { setSelectedUser(user); setDeleteConfirmation(""); setActionType('delete') }}
-                    disabled={user.role === 'ADMIN'}
+                    disabled
+                    title="User deletion is not available in this version. You can ban an account instead."
                     className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
                   >
                     <Trash2 className="h-4 w-4 mr-1" />
-                    Delete User
+                    Deletion unavailable
                   </Button>
                 </div>
               </Card>
@@ -474,34 +466,6 @@ export default function UsersManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete Dialog */}
-      <AlertDialog open={actionType === 'delete'} onOpenChange={() => setActionType(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete User</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently deletes @{selectedUser?.username}, their auth account, and their platform data. Type the username to confirm.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-4">
-            <Input
-              placeholder={selectedUser?.username || 'username'}
-              value={deleteConfirmation}
-              onChange={(e) => setDeleteConfirmation(e.target.value)}
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteUser}
-              disabled={!selectedUser || deleteConfirmation !== selectedUser.username}
-              className="bg-red-500 hover:bg-red-600"
-            >
-              Delete User
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

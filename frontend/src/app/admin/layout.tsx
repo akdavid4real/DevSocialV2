@@ -14,7 +14,6 @@ import {
   FileCode,
   Shield,
   ShieldCheck,
-  BotMessageSquare,
   Home,
   LogOut,
   Bot
@@ -50,7 +49,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: 'Reports', href: '/admin/reports', icon: Flag },
     ...(user?.role === 'ADMIN' ? [
       { name: 'Roles', href: '/admin/roles', icon: ShieldCheck },
-      { name: 'Bots', href: '/admin/bots', icon: BotMessageSquare },
       { name: 'AI Logs', href: '/admin/ai-logs', icon: Bot },
       { name: 'Audit Logs', href: '/admin/audit', icon: FileCode },
     ] : []),

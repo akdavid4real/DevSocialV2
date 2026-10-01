@@ -42,7 +42,7 @@ const roleStyles: Record<AdminRole, string> = {
 
 export default function AdminRolesPage() {
   const { user } = useAuth()
-  const isAdmin = user?.role === "admin"
+  const isAdmin = user?.role === "ADMIN"
 
   const [users, setUsers] = useState<AdminUser[]>([])
   const [draftRoles, setDraftRoles] = useState<Record<string, AdminRole>>({})
