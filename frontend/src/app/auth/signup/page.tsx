@@ -101,8 +101,12 @@ export default function SignupPage() {
                 birthDay: parseInt(formData.birthDay),
                 referralCode: referralCode || undefined,
             })
-            toast.success("Account created! Please enter the 6-digit code sent to your email.")
-            router.push(`/auth/verify?email=${encodeURIComponent(formData.email)}`)
+            // TEMPORARY: email confirmation is auto-applied server-side (no email/domain
+            // configured yet), so there is no code to enter. Revert to the /auth/verify
+            // redirect once Registration.register() goes back to normal Supabase
+            // email verification.
+            toast.success("Account created! Please log in.")
+            router.push("/auth/login")
         } catch (err: any) {
             console.error("Signup error:", err);
             // Extract message from NestJS validation error if it exists

@@ -59,6 +59,17 @@ public class Registration {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, message);
         }
 
+        // TEMPORARY: no outbound email/domain is configured, so the confirmation
+        // code Supabase would normally send can't reach new users. Auto-confirm
+        // the account instead of requiring the emailed code. Remove this call
+        // (and SupabaseAccountGateway.confirmEmail) once email sending is set up,
+        // so signups go back through normal Supabase email verification.
+        try {
+            supabaseAccounts.confirmEmail(supabaseUserId);
+        } catch (RuntimeException exception) {
+            logger.warn("Failed to auto-confirm email for {}: {}", supabaseUserId, exception.getMessage());
+        }
+
         Map<String, Object> user;
         try {
             user = registrations.createUser(new RegistrationProfile(

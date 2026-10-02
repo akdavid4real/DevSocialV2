@@ -311,6 +311,10 @@ class AuthControllerTest {
                 }
 
                 @Override
+                public void confirmEmail(UUID supabaseUserId) {
+                }
+
+                @Override
                 public void signOut(String accessToken, SignOutScope scope) {
                 }
             };

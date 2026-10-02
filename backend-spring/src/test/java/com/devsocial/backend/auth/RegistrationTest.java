@@ -157,6 +157,10 @@ class RegistrationTest {
             }
 
             @Override
+            public void confirmEmail(UUID userId) {
+            }
+
+            @Override
             public void signOut(String accessToken, SignOutScope scope) {
             }
         };

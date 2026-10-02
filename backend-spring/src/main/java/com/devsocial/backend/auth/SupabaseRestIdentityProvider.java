@@ -126,6 +126,17 @@ public class SupabaseRestIdentityProvider
     }
 
     @Override
+    public void confirmEmail(UUID supabaseUserId) {
+        requireConfiguration();
+        execute(() -> restClient.put()
+                .uri(supabaseUrl + "/auth/v1/admin/users/" + supabaseUserId)
+                .header("apikey", serviceRoleKey)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+                .body(Map.of("email_confirm", true))
+                .retrieve().toBodilessEntity());
+    }
+
+    @Override
     public void signOut(String accessToken, SignOutScope scope) {
         requireConfiguration();
         execute(() -> restClient.post()

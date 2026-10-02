@@ -9,6 +9,13 @@ public interface SupabaseAccountGateway {
     void deleteUser(UUID supabaseUserId);
     void signOut(String accessToken, SignOutScope scope);
 
+    // No outbound email/domain is configured for this deployment, so Supabase's
+    // signup confirmation email cannot reach new users. Registration marks the
+    // account confirmed immediately instead of sending a code. To restore normal
+    // email verification, remove the confirmEmail call in Registration.register()
+    // and the implementation below.
+    void confirmEmail(UUID supabaseUserId);
+
     enum SignOutScope {
         LOCAL("local"),
         GLOBAL("global");
