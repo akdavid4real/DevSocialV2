@@ -2,6 +2,9 @@ import axios from 'axios';
 import { API_BASE_URL } from '@/lib/env';
 import { getAccessToken, setAccessToken } from '@/lib/auth-token';
 
+const SERVER_STARTING_MESSAGE =
+    'The server is starting up. Please wait about a minute and try again.';
+
 const api = axios.create({
     baseURL: API_BASE_URL,
     withCredentials: true,
@@ -90,7 +93,20 @@ api.interceptors.response.use(
             }
         }
 
-        return Promise.reject(error.response?.data || error.message);
+        // A sleeping or still-booting backend (e.g. a free-tier host) is answered by
+        // the proxy with a 502/503/504 HTML page. Never show that raw markup.
+        const body = error.response?.data;
+        const isHtmlBody = typeof body === 'string' && /^\s*<(?:!doctype|html)/i.test(body);
+        if (status === 502 || status === 503 || status === 504 || isHtmlBody) {
+            return Promise.reject({
+                success: false,
+                statusCode: status,
+                error: SERVER_STARTING_MESSAGE,
+                message: SERVER_STARTING_MESSAGE,
+            });
+        }
+
+        return Promise.reject(body || error.message);
     }
 );
 
